@@ -1,5 +1,45 @@
-![tileserver-gl](https://cloud.githubusercontent.com/assets/59284/18173467/fa3aa2ca-7069-11e6-86b1-0f1266befeb6.jpeg)
+# AA TileServer GL
 
+This AnglersAtlas :tm: fork includes an extra endpoint that provides a zipped folder of rendered tiles.
+It's expects a string of the tiles to render in the format `zoom x y` and then encoded using [Google's Encoded Polyline Algorithm Format](https://developers.google.com/maps/documentation/utilities/polylinealgorithm).
+
+Endpoint:
+- `POST /styles/{id}/bundle`
+  - Expected POST body: `encoded={encodedString}`
+
+## Installation/Run instructions:
+
+You need to include the `mbtiles` files in this root directory. Basic tiles/styles can be downloaded from OpenMapTiles with an account.
+
+Expected tiles include:
+- [osm.mbtiles](https://openmaptiles.com/downloads/tileset/osm/)
+- [satellite.mbtiles](https://openmaptiles.com/downloads/tileset/satellite/)
+- bathymetry.mbtiles
+
+```bash
+docker build --force-rm -t tileserver .
+```
+```bash
+docker run --rm -it -p 8080:80 -v $(pwd):/data tileserver --verbose
+```
+
+## How to generate Bathymetry mbtiles (or how I (Clayton) generated them)
+
+There's a shape (`.shp`) file with bathymetry lines around Vancouver Island, provided to me by Jamie.
+
+I had to use QGIS to process the data and remove coastline polylines (because they didn't match the land shapes 100%) and make the depth attribute positive (negative by default) so when rendering them they make sense (20m rendered on bathymetry lines on the tiles is standard, compared to -20m). 
+
+Export the fixed shape file as GeoJSON with `EPSG:4326` coordinate system.
+
+Then I used [tippecanoe](https://github.com/mapbox/tippecanoe) to convert the GeoJSON file into an `mbtiles` file.
+
+```bash
+tippecanoe -o bathymetry.mbtiles -z18 bathymetry.json
+```
+
+That's it!
+
+![tileserver-gl](https://cloud.githubusercontent.com/assets/59284/18173467/fa3aa2ca-7069-11e6-86b1-0f1266befeb6.jpeg)
 
 # TileServer GL
 [![Build Status](https://travis-ci.org/klokantech/tileserver-gl.svg?branch=master)](https://travis-ci.org/klokantech/tileserver-gl)

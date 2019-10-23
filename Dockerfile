@@ -11,6 +11,7 @@ RUN apt-get -qq update \
 && DEBIAN_FRONTEND=noninteractive apt-get -y install \
     apt-transport-https \
     curl \
+    zip \
     unzip \
     build-essential \
     python \
@@ -22,8 +23,10 @@ RUN apt-get -qq update \
     libxxf86vm-dev \
     xvfb \
     x11-utils \
+    dos2unix \
 && apt-get clean
 
 RUN mkdir -p /usr/src/app
 COPY / /usr/src/app
+RUN dos2unix /usr/src/app/run.sh
 RUN cd /usr/src/app && npm install --production

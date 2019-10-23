@@ -2,6 +2,7 @@
 
 var advancedPool = require('advanced-pool'),
     fs = require('fs'),
+    cp = require('child_process'),
     path = require('path'),
     url = require('url'),
     util = require('util'),
@@ -772,6 +773,194 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
     info.tiles = utils.getTileUrls(req, info.tiles,
                                    'styles/' + id, info.format, publicUrl);
     return res.send(info);
+  });
+
+  var renderImage = function(z, lon, lat, bearing, pitch, width, height, scale, format, filename) {
+    return new Promise(function (resolve, reject) {
+      if (Math.abs(lon) > 180 || Math.abs(lat) > 85.06 || lon != lon || lat != lat) {
+        reject('Invalid center: ' + lat + ' ' + lon + '\n');
+        return;
+      }
+      if (Math.min(width, height) <= 0 || Math.max(width, height) * scale > (options.maxSize || 2048) || width != width || height != height) {
+        reject('Invalid size: ' + width + ' ' + height + ' ' + scale + '\n');
+        return;
+      }
+      if (format == 'png' || format == 'webp') {
+        // we good fam
+      } else if (format == 'jpg' || format == 'jpeg') {
+        format = 'jpeg';
+      } else {
+        reject('Invalid format: ' + format + '\n');
+        return;
+      }
+
+      var pool = map.renderers[scale];
+      pool.acquire(function(err, renderer) {
+        var mbglZ = Math.max(0, z - 1);
+        var params = {
+          zoom: mbglZ,
+          center: [lon, lat],
+          bearing: bearing,
+          pitch: pitch,
+          width: width,
+          height: height
+        };
+        if (z == 0) {
+          params.width *= 2;
+          params.height *= 2;
+        }
+        
+        var tileMargin = Math.max(options.tileMargin || 0, 0);
+        if (z > 2 && tileMargin > 0) {
+          params.width += tileMargin * 2 * scale;
+          params.height += tileMargin * 2 * scale;
+        }
+
+        renderer.render(params, function(err, data) {
+          pool.release(renderer);
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          var image = sharp(data, {
+            raw: {
+              width: params.width * scale,
+              height: params.height * scale,
+              channels: 4
+            }
+          });
+          
+          if (z > 2 && tileMargin > 0) {
+            image.extract({ left: tileMargin * scale, top: tileMargin * scale, width: width * scale, height: height * scale });
+          }
+
+          if (z == 0) {
+            // HACK: when serving zoom 0, resize the 0 tile from 512 to 256
+            image.resize(width * scale, height * scale);
+          }
+
+          var formatQuality = (params.formatQuality || {})[format] || (options.formatQuality || {})[format];
+          if (format == 'png') {
+            image.png({adaptiveFiltering: false});
+          } else if (format == 'jpeg') {
+            image.jpeg({quality: formatQuality || 80});
+          } else if (format == 'webp') {
+            image.webp({quality: formatQuality || 90});
+          }
+          image.toBuffer(function(err, buffer, info) {
+            if (!buffer) {
+              reject('Not found');
+              return;
+            }
+
+            console.log(filename + '\n');
+            fs.writeFileSync(filename, buffer);
+            resolve();
+          });
+        });
+      });
+    });
+  };
+
+  // Bundle of tiles for list of ZXY's
+  app.use(express.urlencoded({ extended: true }));
+  app.post('/' + id + '/bundle', function(req, res) {
+    var encoded = req.body['encoded'];
+    var encodedLength = encoded.length;
+
+    var format = 'png';
+
+    var folder = 'tiles';
+    if (fs.existsSync(folder)) {
+      fs.readdirSync(folder).forEach(function(file) {
+        var filepath = path.join(folder, file);
+        if (fs.lstatSync(filepath).isFile()) {
+          fs.unlinkSync(filepath);
+        }
+      });
+      fs.rmdirSync(folder);
+    }
+    fs.mkdirSync(folder, { recursive: true });
+
+    var renderPromises = [];
+
+    var index = 0;
+    while (index < encodedLength) {
+      var result = 1;
+      var shift = 0;
+      var b; // int
+
+      var z, x, y;
+
+      do {
+        b = encoded.charAt(index++).charCodeAt(0) - 63 - 1; // TODO: what's with the -1 ?
+        result += b << shift;
+        shift += 5;
+      } while (b >= 0x1f);
+      z = result >> 1;
+
+      result = 1;
+      shift = 0;
+      do {
+        b = encoded.charAt(index++).charCodeAt(0) - 63 - 1; // TODO: what's with the -1 ?
+        result += b << shift;
+        shift += 5;
+      } while (b >= 0x1f);
+      x = result >> 1;
+
+      result = 1;
+      shift = 0;
+      do {
+        b = encoded.charAt(index++).charCodeAt(0) - 63 - 1; // TODO: what's with the -1 ?
+        result += b << shift;
+        shift += 5;
+      } while (b >= 0x1f);
+      y = result >> 1;
+
+      if (z < 0 || x < 0 || y < 0 || z > 20 || x >= Math.pow(2, z) || y >= Math.pow(2, z)) {
+        console.log('skipping ' + z + ' ' + x + ' ' + y + "\n");
+        continue;
+      }
+
+      var tileCenter = mercator.ll([
+        ((x + 0.5) / (1 << z)) * (256 << z),
+        ((y + 0.5) / (1 << z)) * (256 << z)
+      ], z);
+
+      // TODO: Kick off a render and save or something
+      var filename = folder + '/z' + z + 'x' + x + 'y' + y + '.' + format;
+      console.log('Rendering ' + z + ' ' + x + ' ' + y + '...\n');
+      var promise = renderImage(z, tileCenter[0], tileCenter[1], 0, 0, 256, 256, 1, format, filename);
+      renderPromises.push(promise);
+    }
+
+    // TODO: Do a zip promise...
+
+    Promise.all(renderPromises)
+      .then(function () {
+        if (fs.existsSync(folder)) {
+          var filename = 'tiles.zip';
+          cp.execSync('zip -9r ' + filename + ' ' + folder);
+          if (!fs.existsSync(filename)) {
+            res.send('File no existy');
+          } else {
+            res.sendFile('/usr/src/app/' + filename, function(err) {
+              if (err) {
+                console.log('ERROR: ' + err);
+              } else {
+                console.log('sent that file');
+              }
+            });
+          }
+        } else {
+          res.send('SHRUG emoji');
+        }
+      })
+      .catch(function(reason) {
+        console.log(reason);
+        res.send(reason);
+      });
   });
 
   return Promise.all([fontListingPromise, renderersReadyPromise]).then(function() {

@@ -1,0 +1,32 @@
+{
+  "options": {
+    "paths": {
+      "root": "/usr/src/app/node_modules/tileserver-gl-styles",
+      "fonts": "fonts",
+      "styles": "/data",
+      "mbtiles": "/data"
+    }
+  },
+  "styles": {
+    "osm": {
+      "style": "osm.json"
+    },
+    "bathymetry": {
+      "style": "bathymetry.json"
+    },
+    "satellite": {
+      "style": "satellite.json"
+    }
+  },
+  "data": {
+    "osm": {
+      "mbtiles": "osm.mbtiles"
+    },
+    "bathymetry": {
+      "mbtiles": "bathymetry.mbtiles"
+    },
+    "satellite": {
+      "mbtiles": "satellite.mbtiles"
+    }
+  }
+}
