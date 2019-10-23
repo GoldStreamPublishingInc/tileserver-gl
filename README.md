@@ -20,7 +20,31 @@ Expected tiles include:
 docker build --force-rm -t tileserver .
 ```
 ```bash
-docker run --rm -it -p 8080:80 -v $(pwd):/data tileserver --verbose
+docker run --rm -it -p 3359:80 -v `pwd`:/data tileserver
+```
+
+`monitrc`
+```
+check program tileserver with path /home/renderaccount/tileserver-gl/docker-check.sh
+        if status != 0 then alert
+```
+
+`apache`
+
+We don't want to open up the TileServer-GL dashboard to the outside, so we lock down the port and add an internal proxy to point to the styles we want exposed.
+
+`/etc/httpd/conf.d/mod_tile.conf` (on iWeb CentOS machine)
+```
+<Location "/osm">                                                                                                                                                ProxyPass http://localhost:3359/styles/osm                                                                                                                   ProxyPassReverse http://localhost:3359/styles/osm
+</Location>
+<Location "/bathymetry">
+    ProxyPass http://localhost:3359/styles/bathymetry
+    ProxyPassReverse http://localhost:3359/styles/bathymetry
+</Location>
+<Location "/satellite">
+    ProxyPass http://localhost:3359/styles/satellite
+    ProxyPassReverse http://localhost:3359/styles/satellite
+</Location>
 ```
 
 ## How to generate Bathymetry mbtiles (or how I (Clayton) generated them)
@@ -38,6 +62,8 @@ tippecanoe -o bathymetry.mbtiles -z18 bathymetry.json
 ```
 
 That's it!
+
+
 
 ![tileserver-gl](https://cloud.githubusercontent.com/assets/59284/18173467/fa3aa2ca-7069-11e6-86b1-0f1266befeb6.jpeg)
 
