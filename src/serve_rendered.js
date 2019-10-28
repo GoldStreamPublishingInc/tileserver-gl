@@ -12,7 +12,7 @@ var advancedPool = require('advanced-pool'),
 // see https://github.com/lovell/sharp/issues/371
 var sharp = require('sharp');
 
-var Canvas = require('canvas'),
+var { createCanvas, loadImage } = require('canvas'),
     clone = require('clone'),
     Color = require('color'),
     express = require('express'),
@@ -391,7 +391,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
                               opt_overlay) {
     if (Math.abs(lon) > 180 || Math.abs(lat) > 85.06 ||
         lon != lon || lat != lat) {
-      return res.status(400).send('Invalid center');
+      return res.status(400).send('Invalid center: ' + lat + ' ' + lon);
     }
     if (Math.min(width, height) <= 0 ||
         Math.max(width, height) * scale > (options.maxSize || 2048) ||
@@ -455,7 +455,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
           image.overlayWith(opt_overlay);
         }
         if (watermark) {
-          var canvas = new Canvas(scale * width, scale * height);
+          var canvas = createCanvas(scale * width, scale * height);
           var ctx = canvas.getContext('2d');
           ctx.scale(scale, scale);
           ctx.font = '10px sans-serif';
@@ -540,6 +540,130 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
     return path;
   };
 
+  // markers=icon:https://www.anglersatlas.com/assets/markers/public/hotspot.png|52.9565965485168,-122.406575594336
+  var extractGoogleMarkersFromQuery = function(query, transformer) {
+    if (!query.markers) {
+      return null;
+    }
+
+    var parts = (query.markers || '').split('|');
+    if (parts.length == 0) {
+      return null;
+    }
+
+    var marker = {};
+
+    parts.forEach(function(part) {
+      // if this part starts with a letter, then it's a styling property
+      if (/^[a-zA-Z]/.test(part)) {
+        var split = part.indexOf(':');
+        if (split > -1) {
+          var property = part.substring(split, -1);
+          var value = part.substring(split + 1);
+          marker[property] = value;
+        }
+      } else {
+        var latLng = part.split(',');
+        var pair = [+(latLng[1]), +(latLng[0])];
+        if (transformer) {
+          pair = transformer(pair);
+        }
+        marker.point = pair;
+      }
+    });
+
+    return [marker];
+  };
+
+  // path=color:0x00000000|weight:1|52.926691,-122.4412496|52.9715978,-122.4412496|52.9715978,-122.4007407|52.926691,-122.4007407|52.926691,-122.4412496
+  var extractGooglePathsFromQuery = function(query, transformer) {
+    if (!query.path) {
+      return null;
+    }
+
+    var queryPaths = Array.isArray(query.path) ? query.path : [ query.path ];
+    return queryPaths.map(function(queryPath) {
+      var parts = (queryPath || '').split('|');
+      if (parts.length == 0) {
+        return null;
+      }
+
+      var path = {
+        points: [],
+        weight: 5,
+        color: '#6073EB', // default MyCatch :tm: colour
+        // fillcolor: 'rgba(1.0, 1.0, 1.0, 0.5)',
+        // geodesic: false
+      };
+
+      parts.forEach(function(part) {
+        // If this part starts with a letter, then it's a styling property
+        if (/^[a-zA-Z]/.test(part)) {
+          const style = part.split(':');
+          const property = style[0];
+          const value = style[1];
+          if (property === 'enc') {
+            const encoded = value;
+            const encodedLength = encoded.length;
+            var index = 0;
+
+            var lat = 0, lng = 0;
+            while (index < encodedLength) {
+              var result = 1;
+              var shift = 0;
+              var b; // int
+
+              do {
+                b = encoded.charAt(index++).charCodeAt(0) - 63 - 1;
+                result += b << shift;
+                shift += 5;
+              } while (b >= 0x1f);
+              lat += (result & 1) != 0 ? ~(result >> 1) : (result >> 1);
+
+              result = 1;
+              shift = 0;
+              do {
+                b = encoded.charAt(index++).charCodeAt(0) - 63 - 1;
+                result += b << shift;
+                shift += 5;
+              } while (b >= 0x1f);
+              lng += (result & 1) != 0 ? ~(result >> 1) : (result >> 1);
+
+              var pair = [
+                ((+lng) * 1e-5).toFixed(5),
+                ((+lat) * 1e-5).toFixed(5)
+              ];
+              if (transformer) {
+                pair = transformer(pair);
+              }
+              path.points.push(pair);
+            }
+          }
+          // canvas doesn't support colours with 0x..., but does support #...
+          else if (property == 'color' && value.startsWith('0x')) {
+            path[property] = '#' + value.substring(2);
+          } else {
+            path[property] = value;
+          }
+        }
+        // otherwise this is a point of the path
+        else {
+          var latLng = part.split(',');
+          var pair = [+(latLng[1]), +(latLng[0])];
+          if (transformer) {
+            pair = transformer(pair);
+          }
+          path.points.push(pair);
+        }
+      });
+
+      return path;
+    })
+    .filter(function(path) {
+      return path != null;
+    });
+  };
+
   var renderOverlay = function(z, x, y, bearing, pitch, w, h, scale,
                                path, query) {
     if (!path || path.length < 2) {
@@ -562,11 +686,11 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
       center[1] -= minEdge;
     }
 
-    var canvas = new Canvas(scale * w, scale * h);
+    var canvas = createCanvas(scale * w, scale * h);
     var ctx = canvas.getContext('2d');
     ctx.scale(scale, scale);
     if (bearing) {
-      ctx.translate(w / 2, h / 2);
+      ctx.translate(w / 2, h / 2);k
       ctx.rotate(-bearing / 180 * Math.PI);
       ctx.translate(-center[0], -center[1]);
     } else {
@@ -593,6 +717,105 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
     }
 
     return canvas.toBuffer();
+  };
+
+  var renderOverlayGoogle = function(z, x, y, width, height, scale, paths, markers, query) {
+    return new Promise(function(resolve, reject) {
+      if (!paths && !markers) {
+        resolve(null);
+      }
+
+      var precisePx = function(latLng, zoom) {
+        var px = mercator.px(latLng, 20);
+        var scale = Math.pow(2, zoom - 20);
+        return [px[0] * scale, px[1] * scale];
+      };
+
+      var center = precisePx([x, y], z);
+
+      var mapHeight = 512 * (1 << z);
+      var maxEdge = center[1] + height / 2;
+      var minEdge = center[1] - height / 2;
+      if (maxEdge > mapHeight) {
+        center[1] -= (maxEdge - mapHeight);
+      } else if (minEdge < 0) {
+        center[1] -= minEdge;
+      }
+
+      var canvas = createCanvas(scale * width, scale * height);
+      var ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+      // TODO: handle bearing??
+      ctx.translate(-center[0] + width / 2, -center[1] + height / 2);
+
+      if (paths && paths.length) {
+        paths.forEach(function(path) {
+          ctx.lineWidth = path.weight;
+          ctx.strokeStyle = path.color;
+          ctx.fillStyle = path.fillcolor;
+
+          ctx.beginPath();
+          path.points.forEach(function(point) {
+            var px = precisePx(point, z);
+            ctx.lineTo(px[0], px[1]);
+          });
+
+          if (path.points[0][0] == path.points[path.points.length - 1][0] && 
+              path.points[0][1] == path.points[path.points.length - 1][1]) {
+            ctx.closePath();
+          }
+
+          if (path.fillcolor) {
+            ctx.fill();
+          }
+          if (path.color && ctx.lineWidth > 0) {
+            ctx.stroke()
+          }
+        });
+      }
+
+      var markerPromises = [];
+      if (markers && markers.length) {
+        var twoPi = 2 * Math.PI;
+        markers.forEach(function(marker) {
+          var promise;
+
+          var px = precisePx(marker.point, z);
+          if (marker.icon) {
+            promise = new Promise(function(resolve, reject) {
+              loadImage(marker.icon)
+                .then(function(image) {
+                  const imageWidth = image.width,
+                        imageHeight = image.height;
+                  // TODO: Handle anchor
+                  const imageX = px[0] - (imageWidth / 2);
+                  const imageY = px[1] - imageHeight;
+                  ctx.drawImage(image, imageX, imageY, imageWidth, imageHeight);
+                  resolve();
+                })
+                .catch(function(err) {
+                  reject(err);
+                });
+            });
+          } else {
+            promise = new Promise(function(resolve) {
+              ctx.fillStyle = '#f00';
+              ctx.beginPath();
+              ctx.arc(px[0], px[1], 10, 0, twoPi, false);
+              ctx.fill();
+              resolve();
+            });
+          }
+
+          markerPromises.push(promise);
+        });
+      }
+
+      Promise.all(markerPromises)
+        .then(function() {
+          return resolve(canvas.toBuffer());
+        });
+    });
   };
 
   var calcZForBBox = function(bbox, w, h, query) {
@@ -768,6 +991,111 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
     });
   }
 
+  // http://localhost/staticmap
+  //   ?path=color:0x00000000|weight:1|52.926691,-122.4412496|52.9715978,-122.4412496|52.9715978,-122.4007407|52.926691,-122.4007407|52.926691,-122.4412496
+  //   &size=426x426
+  //   &scale=2
+  //   &markers=icon:https://www.anglersatlas.com/assets/markers/public/hotspot.png|52.9565965485168,-122.406575594336
+  var staticMapPattern = '/' + id + '/staticmap';
+  app.get(staticMapPattern, function(req, res, next) {
+    var size = req.query.size;
+    if (!size) {
+      return res.status(400).send('Missing size parameter');
+    }
+    // TODO: Validate size is correctly formatted
+    var sizeParts = size.split('x');
+    var width = +sizeParts[0],
+        height = +sizeParts[1];
+
+    var scale = +(req.query.scale) || 1;
+    if (scale != 1 && scale != 2 && scale != 4) {
+      return res.status(400).send('Invalid scale. Valid values include 1, 2, 4.');
+    }
+
+    var transformer = dataProjWGStoInternalWGS;
+
+    var markers = extractGoogleMarkersFromQuery(req.query, transformer);
+    if (markers) {
+      // TODO: marker validation? including its properties
+      markers = markers.filter(function(marker) {
+        return (marker.point && marker.point.length == 2);
+      });
+    }
+
+    var paths = extractGooglePathsFromQuery(req.query, transformer);
+    if (paths && paths.length > 0) {
+      // TODO: path validation. including its properties
+      paths = paths.filter(function(path) {
+        return (path.points && path.points.length >= 2);
+      });
+    }
+
+    var center, zoom, x, y;
+    if (markers || paths) {
+      const expandBBox = function(pair) {
+        bbox[0] = Math.min(bbox[0], pair[0]);
+        bbox[1] = Math.min(bbox[1], pair[1]);
+        bbox[2] = Math.max(bbox[2], pair[0]);
+        bbox[3] = Math.max(bbox[3], pair[1]);
+      };
+
+      var bbox = [Infinity, Infinity, -Infinity, -Infinity];
+
+      if (paths && paths.length) {
+        paths.forEach(function(path) {
+          path.points.forEach(function(pair) {
+            expandBBox(pair);
+          });
+        });
+      }
+
+      if (markers && markers.length) {
+        markers.forEach(function(marker) {
+          expandBBox(marker.point);
+        });
+      }
+
+      var bbox_ = mercator.convert(bbox, '900913');
+      center = mercator.inverse([
+        (bbox_[0] + bbox_[2]) / 2,
+        (bbox_[1] + bbox_[3]) / 2
+      ]);
+
+      zoom = calcZForBBox(bbox, width, height, req.query);
+      x = center[0];
+      y = center[1];
+    }
+
+    if (req.query.center) {
+      const latLng = req.query.center.split(',');
+      var pair = [+(latLng[1]), +(latLng[0])];
+      if (transformer) {
+        pair = transformer(pair);
+      }
+      center = pair;
+      x = center[0];
+      y = center[1];
+    }
+    if (req.query.zoom) {
+      zoome = +req.query.zoom;
+    }
+
+    if (!center && !zoom && !x && !y) {
+      return res.status(400).send('Missing one of center/zoom');
+    }
+
+    return renderOverlayGoogle(zoom, x, y, width, height, scale, paths, markers, req.query)
+      .then(function(overlay) {
+        respondImage(zoom, x, y, 0, 0, width, height, scale, 'png', res, next, overlay);
+      })
+      .then(function() {
+        return app;
+      })
+      .catch(function(err) {
+        return res.status(400).send(err);
+      });
+  });
+
   app.get('/' + id + '.json', function(req, res, next) {
     var info = clone(tileJSON);
     info.tiles = utils.getTileUrls(req, info.tiles,
@@ -885,6 +1213,11 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
 
     var renderPromises = [];
 
+    // Z X Y triples are encoded according to:
+    //   https://developers.google.com/maps/documentation/utilities/polylinealgorithm
+    // The only difference is each value is encoded as it is, instead of the the offset from the previous point as
+    // stated in the above link
+
     var index = 0;
     while (index < encodedLength) {
       var result = 1;
@@ -894,7 +1227,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
       var z, x, y;
 
       do {
-        b = encoded.charAt(index++).charCodeAt(0) - 63 - 1; // TODO: what's with the -1 ?
+        b = encoded.charAt(index++).charCodeAt(0) - 63 - 1;
         result += b << shift;
         shift += 5;
       } while (b >= 0x1f);
@@ -903,7 +1236,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
       result = 1;
       shift = 0;
       do {
-        b = encoded.charAt(index++).charCodeAt(0) - 63 - 1; // TODO: what's with the -1 ?
+        b = encoded.charAt(index++).charCodeAt(0) - 63 - 1;
         result += b << shift;
         shift += 5;
       } while (b >= 0x1f);
@@ -912,7 +1245,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
       result = 1;
       shift = 0;
       do {
-        b = encoded.charAt(index++).charCodeAt(0) - 63 - 1; // TODO: what's with the -1 ?
+        b = encoded.charAt(index++).charCodeAt(0) - 63 - 1;
         result += b << shift;
         shift += 5;
       } while (b >= 0x1f);
@@ -928,14 +1261,11 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
         ((y + 0.5) / (1 << z)) * (256 << z)
       ], z);
 
-      // TODO: Kick off a render and save or something
       var filename = folder + '/z' + z + 'x' + x + 'y' + y + '.' + format;
       console.log('Rendering ' + z + ' ' + x + ' ' + y + '...\n');
       var promise = renderImage(z, tileCenter[0], tileCenter[1], 0, 0, 256, 256, 1, format, filename);
       renderPromises.push(promise);
     }
-
-    // TODO: Do a zip promise...
 
     Promise.all(renderPromises)
       .then(function () {

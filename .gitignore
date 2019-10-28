@@ -6,3 +6,6 @@ light
 plugins
 *.mbtiles
 .vscode
+*.log
+*.local
+config-local.json

@@ -19,8 +19,12 @@ RUN apt-get -qq update \
     libgles2-mesa-dev \
     libgbm-dev \
     libllvm3.9 \
+    libjpeg-dev \
+    libgif-dev \
+    librsvg2-dev \
     libprotobuf-dev \
     libxxf86vm-dev \
+    libpango1.0-dev \
     xvfb \
     x11-utils \
     dos2unix \
