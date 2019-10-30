@@ -12,11 +12,11 @@
   "sources": {
     "openmaptiles": {
       "type": "vector",
-      "url": "mbtiles://{osm.json}"
+      "url": "mbtiles://{osm}"
     },
     "hillshade": {
       "type": "raster",
-      "url": " mbtiles://{hillshade.json}"
+      "url": "mbtiles://{hillshade}"
     }
   },
   "glyphs": "{fontstack}/{range}.pbf",

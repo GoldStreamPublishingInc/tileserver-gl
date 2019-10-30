@@ -17,7 +17,7 @@
     "satellite": {
       "style": "satellite.json"
     },
-    "hyrbid": {
+    "hybrid": {
       "style": "hybrid.json"
     },
     "hillshade": {
