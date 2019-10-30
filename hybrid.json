@@ -20,7 +20,7 @@
       "url": "mbtiles://{osm}"
     }
   },
-  "glyphs": "http://localhost:8080/fonts/{fontstack}/{range}.pbf",
+  "glyphs": "{fontstack}/{range}.pbf",
   "layers": [
     {
       "id": "satellite",

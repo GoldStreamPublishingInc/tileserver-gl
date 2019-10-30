@@ -12,14 +12,14 @@
   "sources": {
     "openmaptiles": {
       "type": "vector",
-      "url": "http://localhost:8080/data/osm.json"
+      "url": "mbtiles://{osm.json}"
     },
     "hillshade": {
       "type": "raster",
-      "url": "http://localhost:8080/data/hillshade.json"
+      "url": " mbtiles://{hillshade.json}"
     }
   },
-  "glyphs": "http://localhost:8080/fonts/{fontstack}/{range}.pbf",
+  "glyphs": "{fontstack}/{range}.pbf",
   "layers": [
     {
       "id": "background",
