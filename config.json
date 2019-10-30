@@ -16,6 +16,12 @@
     },
     "satellite": {
       "style": "satellite.json"
+    },
+    "hyrbid": {
+      "style": "hybrid.json"
+    },
+    "hillshade": {
+      "style": "hillshade.json"
     }
   },
   "data": {
