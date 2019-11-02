@@ -1275,7 +1275,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
           if (!fs.existsSync(filename)) {
             res.send('File no existy');
           } else {
-            res.sendFile('/usr/src/app/' + filename, function(err) {
+            res.sendFile('/data/' + filename, function(err) {
               if (err) {
                 console.log('ERROR: ' + err);
               } else {
