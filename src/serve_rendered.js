@@ -1,36 +1,36 @@
 'use strict';
 
 var advancedPool = require('advanced-pool'),
-    fs = require('fs'),
-    cp = require('child_process'),
-    path = require('path'),
-    url = require('url'),
-    util = require('util'),
-    zlib = require('zlib');
+  fs = require('fs'),
+  path = require('path'),
+  url = require('url'),
+  util = require('util'),
+  archiver = require('archiver'),
+  zlib = require('zlib');
 
 // sharp has to be required before node-canvas
 // see https://github.com/lovell/sharp/issues/371
 var sharp = require('sharp');
 
 var { createCanvas, loadImage } = require('canvas'),
-    clone = require('clone'),
-    Color = require('color'),
-    express = require('express'),
-    mercator = new (require('@mapbox/sphericalmercator'))(),
-    mbgl = require('@mapbox/mapbox-gl-native'),
-    mbtiles = require('@mapbox/mbtiles'),
-    proj4 = require('proj4'),
-    request = require('request');
+  clone = require('clone'),
+  Color = require('color'),
+  express = require('express'),
+  mercator = new (require('@mapbox/sphericalmercator'))(),
+  mbgl = require('@mapbox/mapbox-gl-native'),
+  mbtiles = require('@mapbox/mbtiles'),
+  proj4 = require('proj4'),
+  request = require('request');
 
 var utils = require('./utils');
 
 var FLOAT_PATTERN = '[+-]?(?:\\d+|\\d+\.?\\d+)';
 
-var getScale = function(scale) {
+var getScale = function (scale) {
   return (scale || '@1x').slice(1, 2) | 0;
 };
 
-mbgl.on('message', function(e) {
+mbgl.on('message', function (e) {
   if (e.severity == 'WARNING' || e.severity == 'ERROR') {
     console.log('mbgl:', e);
   }
@@ -62,7 +62,7 @@ var cachedEmptyResponses = {
  */
 function createEmptyResponse(format, color, callback) {
   if (!format || format === 'pbf') {
-    callback(null, {data: cachedEmptyResponses['']});
+    callback(null, { data: cachedEmptyResponses[''] });
     return;
   }
 
@@ -76,7 +76,7 @@ function createEmptyResponse(format, color, callback) {
   var cacheKey = format + ',' + color;
   var data = cachedEmptyResponses[cacheKey];
   if (data) {
-    callback(null, {data: data});
+    callback(null, { data: data });
     return;
   }
 
@@ -90,15 +90,15 @@ function createEmptyResponse(format, color, callback) {
       height: 1,
       channels: channels
     }
-  }).toFormat(format).toBuffer(function(err, buffer, info) {
+  }).toFormat(format).toBuffer(function (err, buffer, info) {
     if (!err) {
       cachedEmptyResponses[cacheKey] = buffer;
     }
-    callback(null, {data: buffer});
+    callback(null, { data: buffer });
   });
 }
 
-module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
+module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
   var app = express().disable('x-powered-by');
 
   var maxScaleFactor = Math.min(Math.floor(options.maxScaleFactor || 3), 9);
@@ -121,14 +121,14 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
   };
 
   var existingFonts = {};
-  var fontListingPromise = new Promise(function(resolve, reject) {
-    fs.readdir(options.paths.fonts, function(err, files) {
+  var fontListingPromise = new Promise(function (resolve, reject) {
+    fs.readdir(options.paths.fonts, function (err, files) {
       if (err) {
         reject(err);
         return;
       }
-      files.forEach(function(file) {
-        fs.stat(path.join(options.paths.fonts, file), function(err, stats) {
+      files.forEach(function (file) {
+        fs.stat(path.join(options.paths.fonts, file), function (err, stats) {
           if (err) {
             reject(err);
             return;
@@ -143,17 +143,17 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
   });
 
   var styleJSON;
-  var createPool = function(ratio, min, max) {
-    var createRenderer = function(ratio, createCallback) {
+  var createPool = function (ratio, min, max) {
+    var createRenderer = function (ratio, createCallback) {
       var renderer = new mbgl.Map({
         ratio: ratio,
-        request: function(req, callback) {
+        request: function (req, callback) {
           var protocol = req.url.split(':')[0];
           //console.log('Handling request:', req);
           if (protocol == 'sprites') {
             var dir = options.paths[protocol];
             var file = unescape(req.url).substring(protocol.length + 3);
-            fs.readFile(path.join(dir, file), function(err, data) {
+            fs.readFile(path.join(dir, file), function (err, data) {
               callback(err, { data: data });
             });
           } else if (protocol == 'fonts') {
@@ -162,10 +162,10 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
             var range = parts[3].split('.')[0];
             utils.getFontsPbf(
               null, options.paths[protocol], fontstack, range, existingFonts
-            ).then(function(concated) {
-              callback(null, {data: concated});
-            }, function(err) {
-              callback(err, {data: null});
+            ).then(function (concated) {
+              callback(null, { data: concated });
+            }, function (err) {
+              callback(err, { data: null });
             });
           } else if (protocol == 'mbtiles') {
             var parts = req.url.split('/');
@@ -173,10 +173,10 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
             var source = map.sources[sourceId];
             var sourceInfo = styleJSON.sources[sourceId];
             var z = parts[3] | 0,
-                x = parts[4] | 0,
-                y = parts[5].split('.')[0] | 0,
-                format = parts[5].split('.')[1];
-            source.getTile(z, x, y, function(err, data, headers) {
+              x = parts[4] | 0,
+              y = parts[5].split('.')[0] | 0,
+              format = parts[5].split('.')[1];
+            source.getTile(z, x, y, function (err, data, headers) {
               if (err) {
                 if (options.verbose) console.log('MBTiles error, serving empty', err);
                 createEmptyResponse(sourceInfo.format, sourceInfo.color, callback);
@@ -207,32 +207,32 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
             });
           } else if (protocol == 'http' || protocol == 'https') {
             request({
-                url: req.url,
-                encoding: null,
-                gzip: true
-            }, function(err, res, body) {
-                var parts = url.parse(req.url);
-                var extension = path.extname(parts.pathname).toLowerCase();
-                var format = extensionToFormat[extension] || '';
-                if (err || res.statusCode < 200 || res.statusCode >= 300) {
-                  // console.log('HTTP error', err || res.statusCode);
-                  createEmptyResponse(format, '', callback);
-                  return;
-                }
+              url: req.url,
+              encoding: null,
+              gzip: true
+            }, function (err, res, body) {
+              var parts = url.parse(req.url);
+              var extension = path.extname(parts.pathname).toLowerCase();
+              var format = extensionToFormat[extension] || '';
+              if (err || res.statusCode < 200 || res.statusCode >= 300) {
+                // console.log('HTTP error', err || res.statusCode);
+                createEmptyResponse(format, '', callback);
+                return;
+              }
 
-                var response = {};
-                if (res.headers.modified) {
-                  response.modified = new Date(res.headers.modified);
-                }
-                if (res.headers.expires) {
-                  response.expires = new Date(res.headers.expires);
-                }
-                if (res.headers.etag) {
-                  response.etag = res.headers.etag;
-                }
+              var response = {};
+              if (res.headers.modified) {
+                response.modified = new Date(res.headers.modified);
+              }
+              if (res.headers.expires) {
+                response.expires = new Date(res.headers.expires);
+              }
+              if (res.headers.etag) {
+                response.etag = res.headers.etag;
+              }
 
-                response.data = body;
-                callback(null, response);
+              response.data = body;
+              callback(null, response);
             });
           }
         }
@@ -244,7 +244,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
       min: min,
       max: max,
       create: createRenderer.bind(null, ratio),
-      destroy: function(renderer) {
+      destroy: function (renderer) {
         renderer.release();
       }
     });
@@ -256,15 +256,15 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
   var httpTester = /^(http(s)?:)?\/\//;
   if (styleJSON.sprite && !httpTester.test(styleJSON.sprite)) {
     styleJSON.sprite = 'sprites://' +
-        styleJSON.sprite
-            .replace('{style}', path.basename(styleFile, '.json'))
-            .replace('{styleJsonFolder}', path.relative(options.paths.sprites, path.dirname(styleJSONPath)));
+      styleJSON.sprite
+        .replace('{style}', path.basename(styleFile, '.json'))
+        .replace('{styleJsonFolder}', path.relative(options.paths.sprites, path.dirname(styleJSONPath)));
   }
   if (styleJSON.glyphs && !httpTester.test(styleJSON.glyphs)) {
     styleJSON.glyphs = 'fonts://' + styleJSON.glyphs;
   }
 
-  (styleJSON.layers || []).forEach(function(layer) {
+  (styleJSON.layers || []).forEach(function (layer) {
     if (layer && layer.paint) {
       // Remove (flatten) 3D buildings
       if (layer.paint['fill-extrusion-height']) {
@@ -294,7 +294,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
   var dataProjWGStoInternalWGS = null;
 
   var queue = [];
-  Object.keys(styleJSON.sources).forEach(function(name) {
+  Object.keys(styleJSON.sources).forEach(function (name) {
     var source = styleJSON.sources[name];
     var url = source.url;
 
@@ -304,7 +304,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
 
       var mbtilesFile = url.substring('mbtiles://'.length);
       var fromData = mbtilesFile[0] == '{' &&
-                     mbtilesFile[mbtilesFile.length - 1] == '}';
+        mbtilesFile[mbtilesFile.length - 1] == '}';
 
       if (fromData) {
         mbtilesFile = mbtilesFile.substr(1, mbtilesFile.length - 2);
@@ -319,14 +319,14 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
         }
       }
 
-      queue.push(new Promise(function(resolve, reject) {
+      queue.push(new Promise(function (resolve, reject) {
         mbtilesFile = path.resolve(options.paths.mbtiles, mbtilesFile);
         var mbtilesFileStats = fs.statSync(mbtilesFile);
         if (!mbtilesFileStats.isFile() || mbtilesFileStats.size == 0) {
           throw Error('Not valid MBTiles file: ' + mbtilesFile);
         }
-        map.sources[name] = new mbtiles(mbtilesFile, function(err) {
-          map.sources[name].getInfo(function(err, info) {
+        map.sources[name] = new mbtiles(mbtilesFile, function (err) {
+          map.sources[name].getInfo(function (err, info) {
             if (err) {
               console.error(err);
               return;
@@ -336,7 +336,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
               // how to do this for multiple sources with different proj4 defs?
               var to3857 = proj4('EPSG:3857');
               var toDataProj = proj4(info.proj4);
-              dataProjWGStoInternalWGS = function(xy) {
+              dataProjWGStoInternalWGS = function (xy) {
                 return to3857.inverse(toDataProj.forward(xy));
               };
             }
@@ -355,7 +355,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
             }
 
             if (!attributionOverride &&
-                source.attribution && source.attribution.length > 0) {
+              source.attribution && source.attribution.length > 0) {
               if (tileJSON.attribution.length > 0) {
                 tileJSON.attribution += '; ';
               }
@@ -368,7 +368,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
     }
   });
 
-  var renderersReadyPromise = Promise.all(queue).then(function() {
+  var renderersReadyPromise = Promise.all(queue).then(function () {
     // standard and @2x tiles are much more usual -> default to larger pools
     var minPoolSizes = options.minRendererPoolSizes || [8, 4, 2];
     var maxPoolSizes = options.maxRendererPoolSizes || [16, 8, 4];
@@ -384,18 +384,18 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
   repo[id] = tileJSON;
 
   var tilePattern = '/' + id + '/:z(\\d+)/:x(\\d+)/:y(\\d+)' +
-                    ':scale(' + scalePattern + ')?\.:format([\\w]+)';
+    ':scale(' + scalePattern + ')?\.:format([\\w]+)';
 
-  var respondImage = function(z, lon, lat, bearing, pitch,
-                              width, height, scale, format, res, next,
-                              opt_overlay) {
+  var respondImage = function (z, lon, lat, bearing, pitch,
+    width, height, scale, format, res, next,
+    opt_overlay) {
     if (Math.abs(lon) > 180 || Math.abs(lat) > 85.06 ||
-        lon != lon || lat != lat) {
+      lon != lon || lat != lat) {
       return res.status(400).send('Invalid center: ' + lat + ' ' + lon);
     }
     if (Math.min(width, height) <= 0 ||
-        Math.max(width, height) * scale > (options.maxSize || 2048) ||
-        width != width || height != height) {
+      Math.max(width, height) * scale > (options.maxSize || 2048) ||
+      width != width || height != height) {
       return res.status(400).send('Invalid size');
     }
     if (format == 'png' || format == 'webp') {
@@ -406,7 +406,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
     }
 
     var pool = map.renderers[scale];
-    pool.acquire(function(err, renderer) {
+    pool.acquire(function (err, renderer) {
       var mbglZ = Math.max(0, z - 1);
       var params = {
         zoom: mbglZ,
@@ -420,14 +420,14 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
         params.width *= 2;
         params.height *= 2;
       }
-      
+
       var tileMargin = Math.max(options.tileMargin || 0, 0);
       if (z > 2 && tileMargin > 0) {
         params.width += tileMargin * 2 * scale;
         params.height += tileMargin * 2 * scale;
       }
 
-      renderer.render(params, function(err, data) {
+      renderer.render(params, function (err, data) {
         pool.release(renderer);
         if (err) {
           console.error(err);
@@ -441,9 +441,9 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
             channels: 4
           }
         });
-        
+
         if (z > 2 && tileMargin > 0) {
-            image.extract({ left: tileMargin * scale, top: tileMargin * scale, width: width * scale, height: height * scale });
+          image.extract({ left: tileMargin * scale, top: tileMargin * scale, width: width * scale, height: height * scale });
         }
 
         if (z == 0) {
@@ -469,16 +469,16 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
         }
 
         var formatQuality = (params.formatQuality || {})[format] ||
-                            (options.formatQuality || {})[format];
+          (options.formatQuality || {})[format];
 
         if (format == 'png') {
-          image.png({adaptiveFiltering: false});
+          image.png({ adaptiveFiltering: false });
         } else if (format == 'jpeg') {
-          image.jpeg({quality: formatQuality || 80});
+          image.jpeg({ quality: formatQuality || 80 });
         } else if (format == 'webp') {
-          image.webp({quality: formatQuality || 90});
+          image.webp({ quality: formatQuality || 90 });
         }
-        image.toBuffer(function(err, buffer, info) {
+        image.toBuffer(function (err, buffer, info) {
           if (!buffer) {
             return res.status(404).send('Not found');
           }
@@ -493,7 +493,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
     });
   };
 
-  app.get(tilePattern, function(req, res, next) {
+  app.get(tilePattern, function (req, res, next) {
     var modifiedSince = req.get('if-modified-since'), cc = req.get('cache-control');
     if (modifiedSince && (!cc || cc.indexOf('no-cache') == -1)) {
       if (new Date(lastModified) <= new Date(modifiedSince)) {
@@ -502,12 +502,12 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
     }
 
     var z = req.params.z | 0,
-        x = req.params.x | 0,
-        y = req.params.y | 0,
-        scale = getScale(req.params.scale),
-        format = req.params.format;
+      x = req.params.x | 0,
+      y = req.params.y | 0,
+      scale = getScale(req.params.scale),
+      format = req.params.format;
     if (z < 0 || x < 0 || y < 0 ||
-        z > 20 || x >= Math.pow(2, z) || y >= Math.pow(2, z)) {
+      z > 20 || x >= Math.pow(2, z) || y >= Math.pow(2, z)) {
       return res.status(404).send('Out of bounds');
     }
     var tileSize = 256;
@@ -516,13 +516,13 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
       ((y + 0.5) / (1 << z)) * (256 << z)
     ], z);
     return respondImage(z, tileCenter[0], tileCenter[1], 0, 0,
-                        tileSize, tileSize, scale, format, res, next);
+      tileSize, tileSize, scale, format, res, next);
   });
 
-  var extractPathFromQuery = function(query, transformer) {
+  var extractPathFromQuery = function (query, transformer) {
     var pathParts = (query.path || '').split('|');
     var path = [];
-    pathParts.forEach(function(pair) {
+    pathParts.forEach(function (pair) {
       var pairParts = pair.split(',');
       if (pairParts.length == 2) {
         var pair;
@@ -541,7 +541,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
   };
 
   // markers=icon:https://www.anglersatlas.com/assets/markers/public/hotspot.png|52.9565965485168,-122.406575594336
-  var extractGoogleMarkersFromQuery = function(query, transformer) {
+  var extractGoogleMarkersFromQuery = function (query, transformer) {
     if (!query.markers) {
       return null;
     }
@@ -553,7 +553,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
 
     var marker = {};
 
-    parts.forEach(function(part) {
+    parts.forEach(function (part) {
       // if this part starts with a letter, then it's a styling property
       if (/^[a-zA-Z]/.test(part)) {
         var split = part.indexOf(':');
@@ -576,13 +576,13 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
   };
 
   // path=color:0x00000000|weight:1|52.926691,-122.4412496|52.9715978,-122.4412496|52.9715978,-122.4007407|52.926691,-122.4007407|52.926691,-122.4412496
-  var extractGooglePathsFromQuery = function(query, transformer) {
+  var extractGooglePathsFromQuery = function (query, transformer) {
     if (!query.path) {
       return null;
     }
 
-    var queryPaths = Array.isArray(query.path) ? query.path : [ query.path ];
-    return queryPaths.map(function(queryPath) {
+    var queryPaths = Array.isArray(query.path) ? query.path : [query.path];
+    return queryPaths.map(function (queryPath) {
       var parts = (queryPath || '').split('|');
       if (parts.length == 0) {
         return null;
@@ -596,7 +596,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
         // geodesic: false
       };
 
-      parts.forEach(function(part) {
+      parts.forEach(function (part) {
         // If this part starts with a letter, then it's a styling property
         if (/^[a-zA-Z]/.test(part)) {
           const style = part.split(':');
@@ -659,17 +659,17 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
 
       return path;
     })
-    .filter(function(path) {
-      return path != null;
-    });
+      .filter(function (path) {
+        return path != null;
+      });
   };
 
-  var renderOverlay = function(z, x, y, bearing, pitch, w, h, scale,
-                               path, query) {
+  var renderOverlay = function (z, x, y, bearing, pitch, w, h, scale,
+    path, query) {
     if (!path || path.length < 2) {
       return null;
     }
-    var precisePx = function(ll, zoom) {
+    var precisePx = function (ll, zoom) {
       var px = mercator.px(ll, 20);
       var scale = Math.pow(2, zoom - 20);
       return [px[0] * scale, px[1] * scale];
@@ -690,7 +690,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
     var ctx = canvas.getContext('2d');
     ctx.scale(scale, scale);
     if (bearing) {
-      ctx.translate(w / 2, h / 2);k
+      ctx.translate(w / 2, h / 2); k
       ctx.rotate(-bearing / 180 * Math.PI);
       ctx.translate(-center[0], -center[1]);
     } else {
@@ -698,17 +698,17 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
       ctx.translate(-center[0] + w / 2, -center[1] + h / 2);
     }
     var lineWidth = query.width !== undefined ?
-                    parseFloat(query.width) : 1;
+      parseFloat(query.width) : 1;
     ctx.lineWidth = lineWidth;
     ctx.strokeStyle = query.stroke || 'rgba(0,64,255,0.7)';
     ctx.fillStyle = query.fill || 'rgba(255,255,255,0.4)';
     ctx.beginPath();
-    path.forEach(function(pair) {
+    path.forEach(function (pair) {
       var px = precisePx(pair, z);
       ctx.lineTo(px[0], px[1]);
     });
     if (path[0][0] == path[path.length - 1][0] &&
-        path[0][1] == path[path.length - 1][1]) {
+      path[0][1] == path[path.length - 1][1]) {
       ctx.closePath();
     }
     ctx.fill();
@@ -719,13 +719,13 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
     return canvas.toBuffer();
   };
 
-  var renderOverlayGoogle = function(z, x, y, width, height, scale, paths, markers, query) {
-    return new Promise(function(resolve, reject) {
+  var renderOverlayGoogle = function (z, x, y, width, height, scale, paths, markers, query) {
+    return new Promise(function (resolve, reject) {
       if (!paths && !markers) {
         resolve(null);
       }
 
-      var precisePx = function(latLng, zoom) {
+      var precisePx = function (latLng, zoom) {
         var px = mercator.px(latLng, 20);
         var scale = Math.pow(2, zoom - 20);
         return [px[0] * scale, px[1] * scale];
@@ -749,19 +749,19 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
       ctx.translate(-center[0] + width / 2, -center[1] + height / 2);
 
       if (paths && paths.length) {
-        paths.forEach(function(path) {
+        paths.forEach(function (path) {
           ctx.lineWidth = path.weight;
           ctx.strokeStyle = path.color;
           ctx.fillStyle = path.fillcolor;
 
           ctx.beginPath();
-          path.points.forEach(function(point) {
+          path.points.forEach(function (point) {
             var px = precisePx(point, z);
             ctx.lineTo(px[0], px[1]);
           });
 
-          if (path.points[0][0] == path.points[path.points.length - 1][0] && 
-              path.points[0][1] == path.points[path.points.length - 1][1]) {
+          if (path.points[0][0] == path.points[path.points.length - 1][0] &&
+            path.points[0][1] == path.points[path.points.length - 1][1]) {
             ctx.closePath();
           }
 
@@ -777,28 +777,28 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
       var markerPromises = [];
       if (markers && markers.length) {
         var twoPi = 2 * Math.PI;
-        markers.forEach(function(marker) {
+        markers.forEach(function (marker) {
           var promise;
 
           var px = precisePx(marker.point, z);
           if (marker.icon) {
-            promise = new Promise(function(resolve, reject) {
+            promise = new Promise(function (resolve, reject) {
               loadImage(marker.icon)
-                .then(function(image) {
+                .then(function (image) {
                   const imageWidth = image.width,
-                        imageHeight = image.height;
+                    imageHeight = image.height;
                   // TODO: Handle anchor
                   const imageX = px[0] - (imageWidth / 2);
                   const imageY = px[1] - imageHeight;
                   ctx.drawImage(image, imageX, imageY, imageWidth, imageHeight);
                   resolve();
                 })
-                .catch(function(err) {
+                .catch(function (err) {
                   reject(err);
                 });
             });
           } else {
-            promise = new Promise(function(resolve) {
+            promise = new Promise(function (resolve) {
               ctx.fillStyle = '#f00';
               ctx.beginPath();
               ctx.arc(px[0], px[1], 10, 0, twoPi, false);
@@ -812,20 +812,20 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
       }
 
       Promise.all(markerPromises)
-        .then(function() {
+        .then(function () {
           return resolve(canvas.toBuffer());
         });
     });
   };
 
-  var calcZForBBox = function(bbox, w, h, query) {
+  var calcZForBBox = function (bbox, w, h, query) {
     var z = 25;
 
     var padding = query.padding !== undefined ?
-                  parseFloat(query.padding) : 0.1;
+      parseFloat(query.padding) : 0.1;
 
     var minCorner = mercator.px([bbox[0], bbox[3]], z),
-        maxCorner = mercator.px([bbox[2], bbox[1]], z);
+      maxCorner = mercator.px([bbox[2], bbox[1]], z);
     var w_ = w / (1 + 2 * padding);
     var h_ = h / (1 + 2 * padding);
 
@@ -841,25 +841,25 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
 
   if (options.serveStaticMaps !== false) {
     var staticPattern =
-        '/' + id + '/static/:raw(raw)?/%s/:width(\\d+)x:height(\\d+)' +
-        ':scale(' + scalePattern + ')?\.:format([\\w]+)';
+      '/' + id + '/static/:raw(raw)?/%s/:width(\\d+)x:height(\\d+)' +
+      ':scale(' + scalePattern + ')?\.:format([\\w]+)';
 
     var centerPattern =
-        util.format(':x(%s),:y(%s),:z(%s)(@:bearing(%s)(,:pitch(%s))?)?',
-                    FLOAT_PATTERN, FLOAT_PATTERN, FLOAT_PATTERN,
-                    FLOAT_PATTERN, FLOAT_PATTERN);
+      util.format(':x(%s),:y(%s),:z(%s)(@:bearing(%s)(,:pitch(%s))?)?',
+        FLOAT_PATTERN, FLOAT_PATTERN, FLOAT_PATTERN,
+        FLOAT_PATTERN, FLOAT_PATTERN);
 
-    app.get(util.format(staticPattern, centerPattern), function(req, res, next) {
+    app.get(util.format(staticPattern, centerPattern), function (req, res, next) {
       var raw = req.params.raw;
       var z = +req.params.z,
-          x = +req.params.x,
-          y = +req.params.y,
-          bearing = +(req.params.bearing || '0'),
-          pitch = +(req.params.pitch || '0'),
-          w = req.params.width | 0,
-          h = req.params.height | 0,
-          scale = getScale(req.params.scale),
-          format = req.params.format;
+        x = +req.params.x,
+        y = +req.params.y,
+        bearing = +(req.params.bearing || '0'),
+        pitch = +(req.params.pitch || '0'),
+        w = req.params.width | 0,
+        h = req.params.height | 0,
+        scale = getScale(req.params.scale),
+        format = req.params.format;
 
       if (z < 0) {
         return res.status(404).send('Invalid zoom');
@@ -876,16 +876,16 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
 
       var path = extractPathFromQuery(req.query, transformer);
       var overlay = renderOverlay(z, x, y, bearing, pitch, w, h, scale,
-                                  path, req.query);
+        path, req.query);
 
       return respondImage(z, x, y, bearing, pitch, w, h, scale, format,
-                          res, next, overlay);
+        res, next, overlay);
     });
 
-    var serveBounds = function(req, res, next) {
+    var serveBounds = function (req, res, next) {
       var raw = req.params.raw;
       var bbox = [+req.params.minx, +req.params.miny,
-                  +req.params.maxx, +req.params.maxy];
+      +req.params.maxx, +req.params.maxy];
       var center = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2];
 
       var transformer = raw ?
@@ -902,30 +902,30 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
       }
 
       var w = req.params.width | 0,
-          h = req.params.height | 0,
-          scale = getScale(req.params.scale),
-          format = req.params.format;
+        h = req.params.height | 0,
+        scale = getScale(req.params.scale),
+        format = req.params.format;
 
       var z = calcZForBBox(bbox, w, h, req.query),
-          x = center[0],
-          y = center[1],
-          bearing = 0,
-          pitch = 0;
+        x = center[0],
+        y = center[1],
+        bearing = 0,
+        pitch = 0;
 
       var path = extractPathFromQuery(req.query, transformer);
       var overlay = renderOverlay(z, x, y, bearing, pitch, w, h, scale,
-                                  path, req.query);
+        path, req.query);
       return respondImage(z, x, y, bearing, pitch, w, h, scale, format,
-                          res, next, overlay);
+        res, next, overlay);
     };
 
     var boundsPattern =
-        util.format(':minx(%s),:miny(%s),:maxx(%s),:maxy(%s)',
-                    FLOAT_PATTERN, FLOAT_PATTERN, FLOAT_PATTERN, FLOAT_PATTERN);
+      util.format(':minx(%s),:miny(%s),:maxx(%s),:maxy(%s)',
+        FLOAT_PATTERN, FLOAT_PATTERN, FLOAT_PATTERN, FLOAT_PATTERN);
 
     app.get(util.format(staticPattern, boundsPattern), serveBounds);
 
-    app.get('/' + id + '/static/', function(req, res, next) {
+    app.get('/' + id + '/static/', function (req, res, next) {
       for (var key in req.query) {
         req.query[key.toLowerCase()] = req.query[key];
       }
@@ -949,14 +949,14 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
 
     var autoPattern = 'auto';
 
-    app.get(util.format(staticPattern, autoPattern), function(req, res, next) {
+    app.get(util.format(staticPattern, autoPattern), function (req, res, next) {
       var raw = req.params.raw;
       var w = req.params.width | 0,
-          h = req.params.height | 0,
-          bearing = 0,
-          pitch = 0,
-          scale = getScale(req.params.scale),
-          format = req.params.format;
+        h = req.params.height | 0,
+        bearing = 0,
+        pitch = 0,
+        scale = getScale(req.params.scale),
+        format = req.params.format;
 
       var transformer = raw ?
         mercator.inverse.bind(mercator) : dataProjWGStoInternalWGS;
@@ -967,7 +967,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
       }
 
       var bbox = [Infinity, Infinity, -Infinity, -Infinity];
-      path.forEach(function(pair) {
+      path.forEach(function (pair) {
         bbox[0] = Math.min(bbox[0], pair[0]);
         bbox[1] = Math.min(bbox[1], pair[1]);
         bbox[2] = Math.max(bbox[2], pair[0]);
@@ -980,14 +980,14 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
       );
 
       var z = calcZForBBox(bbox, w, h, req.query),
-          x = center[0],
-          y = center[1];
+        x = center[0],
+        y = center[1];
 
       var overlay = renderOverlay(z, x, y, bearing, pitch, w, h, scale,
-                                  path, req.query);
+        path, req.query);
 
       return respondImage(z, x, y, bearing, pitch, w, h, scale, format,
-                          res, next, overlay);
+        res, next, overlay);
     });
   }
 
@@ -997,7 +997,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
   //   &scale=2
   //   &markers=icon:https://www.anglersatlas.com/assets/markers/public/hotspot.png|52.9565965485168,-122.406575594336
   var staticMapPattern = '/' + id + '/staticmap';
-  app.get(staticMapPattern, function(req, res, next) {
+  app.get(staticMapPattern, function (req, res, next) {
     var size = req.query.size;
     if (!size) {
       return res.status(400).send('Missing size parameter');
@@ -1005,7 +1005,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
     // TODO: Validate size is correctly formatted
     var sizeParts = size.split('x');
     var width = +sizeParts[0],
-        height = +sizeParts[1];
+      height = +sizeParts[1];
 
     var scale = +(req.query.scale) || 1;
     if (scale != 1 && scale != 2 && scale != 4) {
@@ -1017,7 +1017,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
     var markers = extractGoogleMarkersFromQuery(req.query, transformer);
     if (markers) {
       // TODO: marker validation? including its properties
-      markers = markers.filter(function(marker) {
+      markers = markers.filter(function (marker) {
         return (marker.point && marker.point.length == 2);
       });
     }
@@ -1025,14 +1025,14 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
     var paths = extractGooglePathsFromQuery(req.query, transformer);
     if (paths && paths.length > 0) {
       // TODO: path validation. including its properties
-      paths = paths.filter(function(path) {
+      paths = paths.filter(function (path) {
         return (path.points && path.points.length >= 2);
       });
     }
 
     var center, zoom, x, y;
     if (markers || paths) {
-      const expandBBox = function(pair) {
+      const expandBBox = function (pair) {
         bbox[0] = Math.min(bbox[0], pair[0]);
         bbox[1] = Math.min(bbox[1], pair[1]);
         bbox[2] = Math.max(bbox[2], pair[0]);
@@ -1042,15 +1042,15 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
       var bbox = [Infinity, Infinity, -Infinity, -Infinity];
 
       if (paths && paths.length) {
-        paths.forEach(function(path) {
-          path.points.forEach(function(pair) {
+        paths.forEach(function (path) {
+          path.points.forEach(function (pair) {
             expandBBox(pair);
           });
         });
       }
 
       if (markers && markers.length) {
-        markers.forEach(function(marker) {
+        markers.forEach(function (marker) {
           expandBBox(marker.point);
         });
       }
@@ -1085,25 +1085,25 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
     }
 
     return renderOverlayGoogle(zoom, x, y, width, height, scale, paths, markers, req.query)
-      .then(function(overlay) {
+      .then(function (overlay) {
         respondImage(zoom, x, y, 0, 0, width, height, scale, 'png', res, next, overlay);
       })
-      .then(function() {
+      .then(function () {
         return app;
       })
-      .catch(function(err) {
+      .catch(function (err) {
         return res.status(400).send(err);
       });
   });
 
-  app.get('/' + id + '.json', function(req, res, next) {
+  app.get('/' + id + '.json', function (req, res, next) {
     var info = clone(tileJSON);
     info.tiles = utils.getTileUrls(req, info.tiles,
-                                   'styles/' + id, info.format, publicUrl);
+      'styles/' + id, info.format, publicUrl);
     return res.send(info);
   });
 
-  var renderImage = function(z, lon, lat, bearing, pitch, width, height, scale, format, filename) {
+  var renderImage = function (z, lon, lat, bearing, pitch, width, height, scale, format, filename, archive) {
     return new Promise(function (resolve, reject) {
       if (Math.abs(lon) > 180 || Math.abs(lat) > 85.06 || lon != lon || lat != lat) {
         reject('Invalid center: ' + lat + ' ' + lon + '\n');
@@ -1123,7 +1123,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
       }
 
       var pool = map.renderers[scale];
-      pool.acquire(function(err, renderer) {
+      pool.acquire(function (err, renderer) {
         var mbglZ = Math.max(0, z - 1);
         var params = {
           zoom: mbglZ,
@@ -1137,14 +1137,14 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
           params.width *= 2;
           params.height *= 2;
         }
-        
+
         var tileMargin = Math.max(options.tileMargin || 0, 0);
         if (z > 2 && tileMargin > 0) {
           params.width += tileMargin * 2 * scale;
           params.height += tileMargin * 2 * scale;
         }
 
-        renderer.render(params, function(err, data) {
+        renderer.render(params, function (err, data) {
           pool.release(renderer);
           if (err) {
             reject(err);
@@ -1158,7 +1158,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
               channels: 4
             }
           });
-          
+
           if (z > 2 && tileMargin > 0) {
             image.extract({ left: tileMargin * scale, top: tileMargin * scale, width: width * scale, height: height * scale });
           }
@@ -1170,20 +1170,20 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
 
           var formatQuality = (params.formatQuality || {})[format] || (options.formatQuality || {})[format];
           if (format == 'png') {
-            image.png({adaptiveFiltering: false});
+            image.png({ adaptiveFiltering: false });
           } else if (format == 'jpeg') {
-            image.jpeg({quality: formatQuality || 80});
+            image.jpeg({ quality: formatQuality || 80 });
           } else if (format == 'webp') {
-            image.webp({quality: formatQuality || 90});
+            image.webp({ quality: formatQuality || 90 });
           }
-          image.toBuffer(function(err, buffer, info) {
+          image.toBuffer(function (err, buffer, info) {
             if (!buffer) {
               reject('Not found');
               return;
             }
 
-            console.log(filename + '\n');
-            fs.writeFileSync(filename, buffer);
+            archive.append(buffer, { name: filename });
+
             resolve();
           });
         });
@@ -1193,23 +1193,16 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
 
   // Bundle of tiles for list of ZXY's
   app.use(express.urlencoded({ extended: true }));
-  app.post('/' + id + '/bundle', function(req, res) {
+  app.post('/' + id + '/bundle', function (req, res) {
     var encoded = req.body['encoded'];
     var encodedLength = encoded.length;
 
     var format = 'png';
 
-    var folder = 'tiles';
-    if (fs.existsSync(folder)) {
-      fs.readdirSync(folder).forEach(function(file) {
-        var filepath = path.join(folder, file);
-        if (fs.lstatSync(filepath).isFile()) {
-          fs.unlinkSync(filepath);
-        }
-      });
-      fs.rmdirSync(folder);
-    }
-    fs.mkdirSync(folder, { recursive: true });
+    var outputFile = '/data/tiles.zip';
+    var output = fs.createWriteStream(outputFile);
+    var archive = archiver('zip', { zlib: { level: 9 } });
+    archive.pipe(output);
 
     var renderPromises = [];
 
@@ -1252,7 +1245,7 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
       y = result >> 1;
 
       if (z < 0 || x < 0 || y < 0 || z > 20 || x >= Math.pow(2, z) || y >= Math.pow(2, z)) {
-        console.log('skipping ' + z + ' ' + x + ' ' + y + "\n");
+        // console.log('skipping ' + z + ' ' + x + ' ' + y + "\n");
         continue;
       }
 
@@ -1261,39 +1254,35 @@ module.exports = function(options, repo, params, id, publicUrl, dataResolver) {
         ((y + 0.5) / (1 << z)) * (256 << z)
       ], z);
 
-      var filename = folder + '/z' + z + 'x' + x + 'y' + y + '.' + format;
-      console.log('Rendering ' + z + ' ' + x + ' ' + y + '...\n');
-      var promise = renderImage(z, tileCenter[0], tileCenter[1], 0, 0, 256, 256, 1, format, filename);
+      var filename = 'z' + z + 'x' + x + 'y' + y + '.' + format;
+      // console.log('Rendering ' + filename + '\n');
+      var promise = renderImage(z, tileCenter[0], tileCenter[1], 0, 0, 256, 256, 1, format, filename, archive);
       renderPromises.push(promise);
     }
 
+    output.on('close', function () {
+      console.log('close output');
+      console.log(archive.pointer())
+      res.sendFile(outputFile);
+    });
+    // TODO: output.on('close', function () {})
+    // TODO: archive.on('warning', function () {})
+    archive.on('error', function (err) {
+      console.log(err);
+      res.send(err);
+    });
+
     Promise.all(renderPromises)
       .then(function () {
-        if (fs.existsSync(folder)) {
-          var filename = 'tiles.zip';
-          cp.execSync('zip -9r ' + filename + ' ' + folder);
-          if (!fs.existsSync(filename)) {
-            res.send('File no existy');
-          } else {
-            res.sendFile('/data/' + filename, function(err) {
-              if (err) {
-                console.log('ERROR: ' + err);
-              } else {
-                console.log('sent that file');
-              }
-            });
-          }
-        } else {
-          res.send('SHRUG emoji');
-        }
+        archive.finalize();
       })
-      .catch(function(reason) {
+      .catch(function (reason) {
         console.log(reason);
         res.send(reason);
       });
   });
 
-  return Promise.all([fontListingPromise, renderersReadyPromise]).then(function() {
+  return Promise.all([fontListingPromise, renderersReadyPromise]).then(function () {
     return app;
   });
 

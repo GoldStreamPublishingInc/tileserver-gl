@@ -9,3 +9,4 @@ plugins
 *.log
 *.local
 config-local.json
+tiles/
