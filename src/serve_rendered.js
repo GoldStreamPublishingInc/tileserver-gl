@@ -6,7 +6,8 @@ var advancedPool = require('advanced-pool'),
   url = require('url'),
   util = require('util'),
   archiver = require('archiver'),
-  zlib = require('zlib');
+  zlib = require('zlib'),
+  shortid = require('shortid');
 
 // sharp has to be required before node-canvas
 // see https://github.com/lovell/sharp/issues/371
@@ -149,7 +150,6 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
         ratio: ratio,
         request: function (req, callback) {
           var protocol = req.url.split(':')[0];
-          //console.log('Handling request:', req);
           if (protocol == 'sprites') {
             var dir = options.paths[protocol];
             var file = unescape(req.url).substring(protocol.length + 3);
@@ -1106,11 +1106,15 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
   var renderImage = function (z, lon, lat, bearing, pitch, width, height, scale, format, filename, archive) {
     return new Promise(function (resolve, reject) {
       if (Math.abs(lon) > 180 || Math.abs(lat) > 85.06 || lon != lon || lat != lat) {
-        reject('Invalid center: ' + lat + ' ' + lon + '\n');
+        const message = 'Invalid center: ' + lat + ' ' + lon + '\n';
+        console.error(message);
+        reject(message);
         return;
       }
       if (Math.min(width, height) <= 0 || Math.max(width, height) * scale > (options.maxSize || 2048) || width != width || height != height) {
-        reject('Invalid size: ' + width + ' ' + height + ' ' + scale + '\n');
+        const message = 'Invalid size: ' + width + ' ' + height + ' ' + scale + '\n';
+        console.error(message);
+        reject(message);
         return;
       }
       if (format == 'png' || format == 'webp') {
@@ -1118,7 +1122,9 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
       } else if (format == 'jpg' || format == 'jpeg') {
         format = 'jpeg';
       } else {
-        reject('Invalid format: ' + format + '\n');
+        const message = 'Invalid format: ' + format + '\n';
+        console.error(message);
+        reject(message);
         return;
       }
 
@@ -1199,8 +1205,9 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
 
     var format = 'png';
 
-    var outputFile = '/data/tiles.zip';
-    var output = fs.createWriteStream(outputFile);
+    const outputFilename = shortid.generate() + '.zip';
+    var outputFilePath = '/data/' + outputFilename;
+    var output = fs.createWriteStream(outputFilePath);
     var archive = archiver('zip', { zlib: { level: 9 } });
     archive.pipe(output);
 
@@ -1245,7 +1252,7 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
       y = result >> 1;
 
       if (z < 0 || x < 0 || y < 0 || z > 20 || x >= Math.pow(2, z) || y >= Math.pow(2, z)) {
-        // console.log('skipping ' + z + ' ' + x + ' ' + y + "\n");
+        console.log('skipping ' + z + ' ' + x + ' ' + y + "\n");
         continue;
       }
 
@@ -1255,29 +1262,35 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
       ], z);
 
       var filename = 'z' + z + 'x' + x + 'y' + y + '.' + format;
-      // console.log('Rendering ' + filename + '\n');
       var promise = renderImage(z, tileCenter[0], tileCenter[1], 0, 0, 256, 256, 1, format, filename, archive);
       renderPromises.push(promise);
     }
 
     output.on('close', function () {
-      console.log('close output');
-      console.log(archive.pointer())
-      res.sendFile(outputFile);
+      res.download(outputFilePath, 'tiles.zip', (err) => {
+        // Delete the file after the transfer is complete
+        fs.unlinkSync(outputFilePath);
+      });
     });
-    // TODO: output.on('close', function () {})
-    // TODO: archive.on('warning', function () {})
+    // output.on('end', function () {
+    //   // TODO: handle it?
+    // });
+    // output.on('finish', function () {
+    //   // TODO: handle it?
+    // });
+    // archive.on('warning', function (err) {
+    //   // TODO: handle it?
+    //   console.log(err);
+    // });
     archive.on('error', function (err) {
-      console.log(err);
+      console.error(err);
       res.send(err);
     });
 
     Promise.all(renderPromises)
-      .then(function () {
-        archive.finalize();
-      })
+      .then(() => archive.finalize())
       .catch(function (reason) {
-        console.log(reason);
+        console.error(reason);
         res.send(reason);
       });
   });
@@ -1285,5 +1298,4 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
   return Promise.all([fontListingPromise, renderersReadyPromise]).then(function () {
     return app;
   });
-
 };
