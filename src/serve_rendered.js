@@ -849,7 +849,8 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
         FLOAT_PATTERN, FLOAT_PATTERN, FLOAT_PATTERN,
         FLOAT_PATTERN, FLOAT_PATTERN);
 
-    app.get(util.format(staticPattern, centerPattern), function (req, res, next) {
+    const path = util.format(staticPattern, centerPattern);
+    app.get(path, function (req, res, next) {
       var raw = req.params.raw;
       var z = +req.params.z,
         x = +req.params.x,
@@ -996,8 +997,7 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
   //   &size=426x426
   //   &scale=2
   //   &markers=icon:https://www.anglersatlas.com/assets/markers/public/hotspot.png|52.9565965485168,-122.406575594336
-  var staticMapPattern = '/' + id + '/staticmap';
-  app.get(staticMapPattern, function (req, res, next) {
+  app.get('/' + id + '/staticmap', function (req, res, next) {
     var size = req.query.size;
     if (!size) {
       return res.status(400).send('Missing size parameter');
@@ -1202,7 +1202,6 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
   };
 
   // Bundle of tiles for list of ZXY's
-  app.use(express.urlencoded({ extended: true }));
   const bundlePattern = '/' + id + '/bundle';
   app.post(bundlePattern, function (req, res) {
     const w = req.query.width ? (req.query.width | 0) : 256;

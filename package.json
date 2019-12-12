@@ -40,7 +40,8 @@
     "request": "2.88.0",
     "sharp": "0.23.4",
     "tileserver-gl-styles": "1.2.0",
-    "shortid": "2.2.15"
+    "shortid": "2.2.15",
+    "@sentry/node": "5.10.2"
   },
   "devDependencies": {
     "mocha": "^5.2.0",
