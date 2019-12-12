@@ -480,7 +480,7 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
         }
         image.toBuffer(function (err, buffer, info) {
           if (!buffer) {
-            return res.status(404).send('Not found');
+            return res.status(404).send('Not found 1');
           }
 
           res.set({
@@ -1183,8 +1183,12 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
             image.webp({ quality: formatQuality || 90 });
           }
           image.toBuffer(function (err, buffer, info) {
+            if (err) {
+              reject(err);
+              return;
+            }
             if (!buffer) {
-              reject('Not found');
+              reject('Not found 2');
               return;
             }
 
@@ -1199,7 +1203,12 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
 
   // Bundle of tiles for list of ZXY's
   app.use(express.urlencoded({ extended: true }));
-  app.post('/' + id + '/bundle', function (req, res) {
+  const bundlePattern = '/' + id + '/bundle';
+  app.post(bundlePattern, function (req, res) {
+    const w = req.query.width ? (req.query.width | 0) : 256;
+    const h = req.query.height ? (req.query.height | 0) : 256;
+    const scale = req.query.scale ? (req.query.scale | 0) : 1;
+
     var encoded = req.body['encoded'];
     var encodedLength = encoded.length;
 
@@ -1262,7 +1271,7 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
       ], z);
 
       var filename = 'z' + z + 'x' + x + 'y' + y + '.' + format;
-      var promise = renderImage(z, tileCenter[0], tileCenter[1], 0, 0, 256, 256, 1, format, filename, archive);
+      var promise = renderImage(z, tileCenter[0], tileCenter[1], 0, 0, w, h, scale, format, filename, archive);
       renderPromises.push(promise);
     }
 
@@ -1272,26 +1281,20 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
         fs.unlinkSync(outputFilePath);
       });
     });
-    // output.on('end', function () {
-    //   // TODO: handle it?
-    // });
-    // output.on('finish', function () {
-    //   // TODO: handle it?
-    // });
-    // archive.on('warning', function (err) {
-    //   // TODO: handle it?
-    //   console.log(err);
-    // });
+    // output.on('end', function () { });
+    // output.on('finish', function () { });
+    // archive.on('warning', function (err) { });
     archive.on('error', function (err) {
       console.error(err);
-      res.send(err);
+      res.status(500).send(err);
     });
 
     Promise.all(renderPromises)
       .then(() => archive.finalize())
       .catch(function (reason) {
+        fs.unlinkSync(outputFilePath);
         console.error(reason);
-        res.send(reason);
+        res.status(500).send(reason);
       });
   });
 

@@ -1,10 +1,11 @@
-FROM node:6.15.1-stretch
+FROM node:10.17.0-stretch
 MAINTAINER Petr Sloup <petr.sloup@klokantech.com>
 
 ENV NODE_ENV="production"
 VOLUME /data
 WORKDIR /data
 EXPOSE 80
+EXPOSE 9229
 ENTRYPOINT ["/bin/bash", "/usr/src/app/run.sh"]
 
 RUN apt-get -qq update \
@@ -31,6 +32,9 @@ RUN apt-get -qq update \
 && apt-get clean
 
 RUN mkdir -p /usr/src/app
-COPY / /usr/src/app
-RUN dos2unix /usr/src/app/run.sh
+
+COPY package*.json /usr/src/app/
 RUN cd /usr/src/app && npm install --production
+
+COPY . /usr/src/app/
+RUN dos2unix /usr/src/app/run.sh

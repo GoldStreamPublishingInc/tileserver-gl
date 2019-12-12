@@ -29,7 +29,7 @@ export DISPLAY=:${displayNumber}.${screenNumber}
 
 echo
 cd /data
-node /usr/src/app/ -p 80 "$@" &
+node --debug --inspect=0.0.0.0:9229 /usr/src/app/ -p 80 "$@" &
 child=$!
 wait "$child"
 

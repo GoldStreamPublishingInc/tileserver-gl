@@ -10,3 +10,7 @@ plugins
 *.local
 config-local.json
 tiles/
+
+*.heapsnapshot
+processed.txt
+*.zip
