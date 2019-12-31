@@ -386,9 +386,7 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
   var tilePattern = '/' + id + '/:z(\\d+)/:x(\\d+)/:y(\\d+)' +
     ':scale(' + scalePattern + ')?\.:format([\\w]+)';
 
-  var respondImage = function (z, lon, lat, bearing, pitch,
-    width, height, scale, format, res, next,
-    opt_overlay) {
+  var respondImage = function (z, lon, lat, bearing, pitch, width, height, scale, format, res, next, opt_overlay) {
     if (Math.abs(lon) > 180 || Math.abs(lat) > 85.06 ||
       lon != lon || lat != lat) {
       return res.status(400).send('Invalid center: ' + lat + ' ' + lon);
@@ -452,7 +450,7 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
         }
 
         if (opt_overlay) {
-          image.overlayWith(opt_overlay);
+          image.composite([{ input: opt_overlay }]);
         }
         if (watermark) {
           var canvas = createCanvas(scale * width, scale * height);
@@ -465,7 +463,7 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
           ctx.fillStyle = 'rgba(0,0,0,.4)';
           ctx.fillText(watermark, 5, height - 5);
 
-          image.overlayWith(canvas.toBuffer());
+          image.composite([{ input: canvas.toBuffer() }]);
         }
 
         var formatQuality = (params.formatQuality || {})[format] ||
@@ -785,12 +783,45 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
             promise = new Promise(function (resolve, reject) {
               loadImage(marker.icon)
                 .then(function (image) {
-                  const imageWidth = image.width,
-                    imageHeight = image.height;
-                  // TODO: Handle anchor
-                  const imageX = px[0] - (imageWidth / 2);
-                  const imageY = px[1] - imageHeight;
-                  ctx.drawImage(image, imageX, imageY, imageWidth, imageHeight);
+                  // NOTE: There's a bug in canvas when loading images onto a scaled canvas. You have to do the scaling
+                  //  yourself
+                  // TODO: Still a little blurry... Must be from scaling canvas after?
+                  // TODO: Does this get screw up non-svgs?
+                  image.width = image.naturalWidth * scale;
+                  image.height = image.naturalHeight * scale;
+                  const sourceWidth = image.width;
+                  const sourceHeight = image.height;
+                  // TODO: Handle anchor point 10,20
+                  const anchor = marker.anchor ? marker.anchor : 'bottom';
+                  let destX = px[0];
+                  let destY = px[1];
+                  if (anchor === 'top') {
+                    destX -= (sourceWidth / 2);
+                  } else if (anchor === 'bottom') {
+                    destX -= (sourceWidth / 2);
+                    destY -= sourceHeight;
+                  } else if (anchor === 'left') {
+                    destY -= (sourceHeight / 2);
+                  } else if (anchor === 'right') {
+                    destX -= sourceWidth;
+                    destY -= (sourceHeight / 2);
+                  } else if (anchor === 'center') {
+                    destX -= (sourceWidth / 2);
+                    destY -= (sourceHeight / 2);
+                  } else if (anchor === 'topleft') {
+                    // default
+                  } else if (anchor === 'topright') {
+                    destX -= sourceWidth;
+                  } else if (anchor === 'bottomleft') {
+                    destY -= sourceHeight;
+                  } else if (anchor === 'bottomright') {
+                    destX -= sourceWidth;
+                    destY -= sourceHeight;
+                  } else {
+                    // TODO: check if it's a number or a pair of numbers
+                    reject('Unsupported anchor: ' + anchor);
+                  }
+                  ctx.drawImage(image, destX, destY, sourceWidth, sourceHeight);
                   resolve();
                 })
                 .catch(function (err) {
@@ -876,11 +907,8 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
       }
 
       var path = extractPathFromQuery(req.query, transformer);
-      var overlay = renderOverlay(z, x, y, bearing, pitch, w, h, scale,
-        path, req.query);
-
-      return respondImage(z, x, y, bearing, pitch, w, h, scale, format,
-        res, next, overlay);
+      var overlay = renderOverlay(z, x, y, bearing, pitch, w, h, scale, path, req.query);
+      return respondImage(z, x, y, bearing, pitch, w, h, scale, format, res, next, overlay);
     });
 
     var serveBounds = function (req, res, next) {
@@ -914,10 +942,8 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
         pitch = 0;
 
       var path = extractPathFromQuery(req.query, transformer);
-      var overlay = renderOverlay(z, x, y, bearing, pitch, w, h, scale,
-        path, req.query);
-      return respondImage(z, x, y, bearing, pitch, w, h, scale, format,
-        res, next, overlay);
+      var overlay = renderOverlay(z, x, y, bearing, pitch, w, h, scale, path, req.query);
+      return respondImage(z, x, y, bearing, pitch, w, h, scale, format, res, next, overlay);
     };
 
     var boundsPattern =
@@ -984,11 +1010,8 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
         x = center[0],
         y = center[1];
 
-      var overlay = renderOverlay(z, x, y, bearing, pitch, w, h, scale,
-        path, req.query);
-
-      return respondImage(z, x, y, bearing, pitch, w, h, scale, format,
-        res, next, overlay);
+      var overlay = renderOverlay(z, x, y, bearing, pitch, w, h, scale, path, req.query);
+      return respondImage(z, x, y, bearing, pitch, w, h, scale, format, res, next, overlay);
     });
   }
 
