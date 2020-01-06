@@ -1021,23 +1021,23 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
   //   &scale=2
   //   &markers=icon:https://www.anglersatlas.com/assets/markers/public/hotspot.png|52.9565965485168,-122.406575594336
   app.get('/' + id + '/staticmap', function (req, res, next) {
-    var size = req.query.size;
+    const size = req.query.size;
     if (!size) {
       return res.status(400).send('Missing size parameter');
     }
     // TODO: Validate size is correctly formatted
-    var sizeParts = size.split('x');
-    var width = +sizeParts[0],
-      height = +sizeParts[1];
+    const sizeParts = size.split('x');
+    const width = +sizeParts[0];
+    const height = +sizeParts[1];
 
-    var scale = +(req.query.scale) || 1;
+    const scale = +(req.query.scale) || 1;
     if (scale != 1 && scale != 2 && scale != 4) {
       return res.status(400).send('Invalid scale. Valid values include 1, 2, 4.');
     }
 
-    var transformer = dataProjWGStoInternalWGS;
+    const transformer = dataProjWGStoInternalWGS;
 
-    var markers = extractGoogleMarkersFromQuery(req.query, transformer);
+    let markers = extractGoogleMarkersFromQuery(req.query, transformer);
     if (markers) {
       // TODO: marker validation? including its properties
       markers = markers.filter(function (marker) {
@@ -1045,7 +1045,7 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
       });
     }
 
-    var paths = extractGooglePathsFromQuery(req.query, transformer);
+    let paths = extractGooglePathsFromQuery(req.query, transformer);
     if (paths && paths.length > 0) {
       // TODO: path validation. including its properties
       paths = paths.filter(function (path) {
@@ -1053,7 +1053,7 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
       });
     }
 
-    var center, zoom, x, y;
+    let center, zoom, x, y;
     if (markers || paths) {
       const expandBBox = function (pair) {
         bbox[0] = Math.min(bbox[0], pair[0]);
@@ -1062,7 +1062,7 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
         bbox[3] = Math.max(bbox[3], pair[1]);
       };
 
-      var bbox = [Infinity, Infinity, -Infinity, -Infinity];
+      const bbox = [Infinity, Infinity, -Infinity, -Infinity];
 
       if (paths && paths.length) {
         paths.forEach(function (path) {
@@ -1078,7 +1078,7 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
         });
       }
 
-      var bbox_ = mercator.convert(bbox, '900913');
+      const bbox_ = mercator.convert(bbox, '900913');
       center = mercator.inverse([
         (bbox_[0] + bbox_[2]) / 2,
         (bbox_[1] + bbox_[3]) / 2
@@ -1091,19 +1091,28 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
 
     if (req.query.center) {
       const latLng = req.query.center.split(',');
-      var pair = [+(latLng[1]), +(latLng[0])];
+      let pair = [+(latLng[1]), +(latLng[0])];
       if (transformer) {
         pair = transformer(pair);
       }
-      center = pair;
-      x = center[0];
-      y = center[1];
-    }
-    if (req.query.zoom) {
-      zoome = +req.query.zoom;
+      x = pair[0];
+      y = pair[1];
     }
 
-    if (!center && !zoom && !x && !y) {
+    if (!x || !y) {
+      let pair = [0.0, 0.0];
+      if (transformer) {
+        pair = transformer(pair);
+      }
+      x = pair[0];
+      y = pair[1];
+    }
+
+    if (req.query.zoom) {
+      zoom = +req.query.zoom;
+    }
+
+    if (!zoom && !x && !y) {
       return res.status(400).send('Missing one of center/zoom');
     }
 
