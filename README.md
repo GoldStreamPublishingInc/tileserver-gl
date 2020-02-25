@@ -31,21 +31,9 @@ check program tileserver with path /home/renderaccount/tileserver-gl/docker-chec
 
 `apache`
 
-We don't want to open up the TileServer-GL dashboard to the outside, so we lock down the port and add an internal proxy to point to the styles we want exposed.
+TODO
 
-`/etc/httpd/conf.d/mod_tile.conf` (on iWeb CentOS machine)
-```
-<Location "/osm">                                                                                                                                                ProxyPass http://localhost:3359/styles/osm                                                                                                                   ProxyPassReverse http://localhost:3359/styles/osm
-</Location>
-<Location "/bathymetry">
-    ProxyPass http://localhost:3359/styles/bathymetry
-    ProxyPassReverse http://localhost:3359/styles/bathymetry
-</Location>
-<Location "/satellite">
-    ProxyPass http://localhost:3359/styles/satellite
-    ProxyPassReverse http://localhost:3359/styles/satellite
-</Location>
-```
+`/etc/httpd/conf.d/ssl.conf` (on iWeb CentOS machine)
 
 ## How to generate Bathymetry mbtiles (or how I (Clayton) generated them)
 

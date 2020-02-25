@@ -5,7 +5,6 @@ ENV NODE_ENV="production"
 VOLUME /data
 WORKDIR /data
 EXPOSE 80
-EXPOSE 9229
 ENTRYPOINT ["/bin/bash", "/usr/src/app/run.sh"]
 
 RUN apt-get -qq update \
