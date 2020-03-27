@@ -19,9 +19,6 @@
     },
     "hybrid": {
       "style": "hybrid.json"
-    },
-    "hillshade": {
-      "style": "hillshade.json"
     }
   },
   "data": {
@@ -33,9 +30,6 @@
     },
     "satellite": {
       "mbtiles": "satellite.mbtiles"
-    },
-    "hillshade": {
-      "mbtiles": "hillshade.mbtiles"
     }
   }
 }

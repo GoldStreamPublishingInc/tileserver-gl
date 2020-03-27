@@ -1241,6 +1241,10 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
     const scale = req.query.scale ? (req.query.scale | 0) : 1;
 
     var encoded = req.body['encoded'];
+    if (encoded == null || encoded === undefined) {
+      res.status(400).send({ field: "encoded", message: "required" });
+      return;
+    }
     var encodedLength = encoded.length;
 
     var format = 'png';
