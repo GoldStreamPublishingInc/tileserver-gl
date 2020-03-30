@@ -736,7 +736,7 @@
       "id": "bathymetry_pacific_ocean_index",
       "type": "line",
       "source": "bathymetry",
-      "source-layer": "bathymetry_pacific_ocean",
+      "source-layer": "contours",
       "minzoom": 6,
       "filter": ["all", ["in", "INDEX", 5, 10]],
       "paint": {
@@ -749,7 +749,7 @@
       "id": "bathymetry_pacific_ocean_contour",
       "type": "line",
       "source": "bathymetry",
-      "source-layer": "bathymetry_pacific_ocean",
+      "source-layer": "contours",
       "minzoom": 0,
       "filter": ["all", ["!in", "INDEX", 5, 10]],
       "layout": {"visibility": "visible"},
@@ -763,7 +763,7 @@
       "id": "bathymetry_pacific_ocean_depth_label_index",
       "type": "symbol",
       "source": "bathymetry",
-      "source-layer": "bathymetry_pacific_ocean",
+      "source-layer": "contours",
       "minzoom": 6,
       "filter": ["all", ["==", "$type", "LineString"], ["in", "INDEX", 5, 10]],
       "layout": {
@@ -792,7 +792,7 @@
       "id": "bathymetry_pacific_ocean_depth_label_all",
       "type": "symbol",
       "source": "bathymetry",
-      "source-layer": "bathymetry_pacific_ocean",
+      "source-layer": "contours",
       "minzoom": 13,
       "filter": ["all", ["==", "$type", "LineString"]],
       "layout": {
