@@ -581,7 +581,19 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
 
     var queryPaths = Array.isArray(query.path) ? query.path : [query.path];
     return queryPaths.map(function (queryPath) {
-      var parts = (queryPath || '').split('|');
+      var parts = [];
+      var encodedPathIndex = queryPath.indexOf('enc:');
+      if (encodedPathIndex == -1) {
+        parts = queryPath.split('|');
+      } else {
+        if (encodedPathIndex != 0) {
+          queryPath.substring(0, encodedPathIndex - 1).split('|').forEach((part) => {
+            parts.push(part);
+          });
+        }
+        parts.push(queryPath.substring(encodedPathIndex));
+      }
+
       if (parts.length == 0) {
         return null;
       }
@@ -1053,7 +1065,7 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
       });
     }
 
-    let center, zoom, x, y;
+    let center, zoom, x = undefined, y = undefined;
     if (markers || paths) {
       const expandBBox = function (pair) {
         bbox[0] = Math.min(bbox[0], pair[0]);
@@ -1112,7 +1124,7 @@ module.exports = function (options, repo, params, id, publicUrl, dataResolver) {
       zoom = +req.query.zoom;
     }
 
-    if (!zoom && !x && !y) {
+    if (!zoom && x != undefined && y != undefined) {
       return res.status(400).send('Missing one of center/zoom');
     }
 
