@@ -15,12 +15,10 @@ Expected tiles include:
 - [osm.mbtiles](https://openmaptiles.com/downloads/tileset/osm/)
 - [satellite.mbtiles](https://openmaptiles.com/downloads/tileset/satellite/)
 - bathymetry.mbtiles
+- bathymetry-us.mbtiles
 
 ```bash
-docker build --force-rm -t tileserver .
-```
-```bash
-docker run --rm -it -p 3359:80 -v `pwd`:/data tileserver
+./docker-stop.sh && ./docker-build.sh && ./docker-run.sh
 ```
 
 `monitrc`
@@ -29,29 +27,7 @@ check program tileserver with path /home/renderaccount/tileserver-gl/docker-chec
         if status != 0 then alert
 ```
 
-`apache`
-
-TODO
-
 `/etc/httpd/conf.d/ssl.conf` (on iWeb CentOS machine)
-
-## How to generate Bathymetry mbtiles (or how I (Clayton) generated them)
-
-There's a shape (`.shp`) file with bathymetry lines around Vancouver Island, provided to me by Jamie.
-
-I had to use QGIS to process the data and remove coastline polylines (because they didn't match the land shapes 100%) and make the depth attribute positive (negative by default) so when rendering them they make sense (20m rendered on bathymetry lines on the tiles is standard, compared to -20m). 
-
-Export the fixed shape file as GeoJSON with `EPSG:4326` coordinate system.
-
-Then I used [tippecanoe](https://github.com/mapbox/tippecanoe) to convert the GeoJSON file into an `mbtiles` file.
-
-```bash
-tippecanoe -o bathymetry.mbtiles -z18 bathymetry.json
-```
-
-That's it!
-
-
 
 ![tileserver-gl](https://cloud.githubusercontent.com/assets/59284/18173467/fa3aa2ca-7069-11e6-86b1-0f1266befeb6.jpeg)
 
