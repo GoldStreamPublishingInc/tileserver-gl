@@ -25,11 +25,14 @@
     "osm": {
       "mbtiles": "osm.mbtiles"
     },
+    "satellite": {
+      "mbtiles": "satellite.mbtiles"
+    },
     "bathymetry": {
       "mbtiles": "bathymetry.mbtiles"
     },
-    "satellite": {
-      "mbtiles": "satellite.mbtiles"
+    "bathymetry-us": {
+      "mbtiles": "bathymetry-us.mbtiles"
     }
   }
 }
