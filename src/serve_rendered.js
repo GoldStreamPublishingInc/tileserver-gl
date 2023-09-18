@@ -1474,7 +1474,6 @@ export const serve_rendered = {
                   // location is always last (I hope)
                   let value = parts[parts.length - 1];
 
-                  // let icon = '|https://anglersatlas.com/assets/markers/trip-dot.png';
                   let icon = null;
                   let options = '';
                   for (const part of parts.slice(0, parts.length - 1)) {
@@ -1484,16 +1483,14 @@ export const serve_rendered = {
 
                     if (option == 'icon') {
                       icon = `|${value}`;
-                      // } else if (option == 'anchor') {
-                      //   // TODO: map from `anchor` to `offset`? Have to know size of icon ahead of time :(
                     } else {
                       options += `|${part}`;
                     }
                   }
 
                   if (!icon) {
-                    icon = '|trip-dot.png';
-                    options += '|offset:24,24';
+                    icon = '|https://www.anglersatlas.com/media/markers/trip-dot.png';
+                    options += '|anchor:center';
                   }
 
                   value += icon;
