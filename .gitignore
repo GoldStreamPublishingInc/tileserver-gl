@@ -4,13 +4,5 @@ test_data
 data
 light
 plugins
+config.json
 *.mbtiles
-.vscode
-*.log
-*.local
-config-local.json
-tiles/
-
-*.heapsnapshot
-processed.txt
-*.zip

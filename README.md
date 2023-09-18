@@ -1,35 +1,5 @@
-# AA TileServer GL
-
-This AnglersAtlas :tm: fork includes an extra endpoint that provides a zipped folder of rendered tiles.
-It's expects a string of the tiles to render in the format `zoom x y` and then encoded using [Google's Encoded Polyline Algorithm Format](https://developers.google.com/maps/documentation/utilities/polylinealgorithm).
-
-Endpoint:
-- `POST /styles/{id}/bundle`
-  - Expected POST body: `encoded={encodedString}`
-
-## Installation/Run instructions:
-
-You need to include the `mbtiles` files in this root directory. Basic tiles/styles can be downloaded from OpenMapTiles with an account.
-
-Expected tiles include:
-- [osm.mbtiles](https://openmaptiles.com/downloads/tileset/osm/)
-- [satellite.mbtiles](https://openmaptiles.com/downloads/tileset/satellite/)
-- bathymetry.mbtiles
-- bathymetry-us.mbtiles
-
-```bash
-./docker-stop.sh && ./docker-build.sh && ./docker-run.sh
-```
-
-`monitrc`
-```
-check program tileserver with path /home/renderaccount/tileserver-gl/docker-check.sh
-        if status != 0 then alert
-```
-
-`/etc/httpd/conf.d/ssl.conf` (on iWeb CentOS machine)
-
 ![tileserver-gl](https://cloud.githubusercontent.com/assets/59284/18173467/fa3aa2ca-7069-11e6-86b1-0f1266befeb6.jpeg)
+
 
 # TileServer GL
 [![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/maptiler/tileserver-gl/pipeline.yml)](https://github.com/maptiler/tileserver-gl/actions/workflows/pipeline.yml)
