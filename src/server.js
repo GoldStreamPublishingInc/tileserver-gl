@@ -20,6 +20,7 @@ import { serve_data } from './serve_data.js';
 import { serve_style } from './serve_style.js';
 import { serve_font } from './serve_font.js';
 import { getTileUrls, getPublicUrl } from './utils.js';
+import * as Sentry from '@sentry/node';
 
 import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
@@ -39,31 +40,6 @@ const serve_rendered = (
  */
 function start(opts) {
   console.log('Starting server');
-
-  const app = express().disable('x-powered-by');
-  const serving = {
-    styles: {},
-    rendered: {},
-    data: {},
-    fonts: {},
-  };
-
-  app.enable('trust proxy');
-
-  if (process.env.NODE_ENV !== 'test') {
-    const defaultLogFormat =
-      process.env.NODE_ENV === 'production' ? 'tiny' : 'dev';
-    const logFormat = opts.logFormat || defaultLogFormat;
-    app.use(
-      morgan(logFormat, {
-        stream: opts.logFile
-          ? fs.createWriteStream(opts.logFile, { flags: 'a' })
-          : process.stdout,
-        skip: (req, res) =>
-          opts.silent && (res.statusCode === 200 || res.statusCode === 304),
-      }),
-    );
-  }
 
   let config = opts.config || null;
   let configPath = null;
@@ -94,6 +70,42 @@ function start(opts) {
   paths.sprites = path.resolve(paths.root, paths.sprites || '');
   paths.mbtiles = path.resolve(paths.root, paths.mbtiles || '');
   paths.icons = path.resolve(paths.root, paths.icons || '');
+
+  const app = express();
+
+  const sentryEnabled = 'sentry_dsn' in options
+  if (sentryEnabled) {
+    Sentry.init({ dsn: options.sentry_dsn });
+    app.use(Sentry.Handlers.requestHandler());
+  }
+
+  app.disable('x-powered-by');
+  app.enable('trust proxy');
+
+  // NOTE(cg): `/styles/:id/bundle` expects URL encoded POST body
+  app.use(express.urlencoded({ extended: true }));
+
+  const serving = {
+    styles: {},
+    rendered: {},
+    data: {},
+    fonts: {},
+  };
+
+  if (process.env.NODE_ENV !== 'test') {
+    const defaultLogFormat =
+      process.env.NODE_ENV === 'production' ? 'tiny' : 'dev';
+    const logFormat = opts.logFormat || defaultLogFormat;
+    app.use(
+      morgan(logFormat, {
+        stream: opts.logFile
+          ? fs.createWriteStream(opts.logFile, { flags: 'a' })
+          : process.stdout,
+        skip: (req, res) =>
+          opts.silent && (res.statusCode === 200 || res.statusCode === 304),
+      }),
+    );
+  }
 
   const startupPromises = [];
 
@@ -559,6 +571,10 @@ function start(opts) {
   const startupPromise = Promise.all(startupPromises).then(() => {
     console.log('Startup complete');
     startupComplete = true;
+
+    if (sentryEnabled) {
+      app.use(Sentry.Handlers.errorHandler());
+    }
   });
   app.get('/health', (req, res, next) => {
     if (startupComplete) {

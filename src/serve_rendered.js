@@ -18,6 +18,8 @@ import MBTiles from '@mapbox/mbtiles';
 import polyline from '@mapbox/polyline';
 import proj4 from 'proj4';
 import request from 'request';
+import crypto from 'node:crypto'
+import archiver from 'archiver';
 import { getFontsPbf, getTileUrls, fixTileJSONCenter } from './utils.js';
 
 const FLOAT_PATTERN = '[+-]?(?:\\d+|\\d+.?\\d+)';
@@ -106,6 +108,7 @@ function createEmptyResponse(format, color, callback) {
  * @param {List} coordinatePair Coordinate pair.
  * @param coordinates
  * @param {object} query Request query parameters.
+ * @returns {[number, number]|null}
  */
 const parseCoordinatePair = (coordinates, query) => {
   const firstCoordinate = parseFloat(coordinates[0]);
@@ -131,6 +134,7 @@ const parseCoordinatePair = (coordinates, query) => {
  * @param {List} coordinatePair Coordinate pair.
  * @param {object} query Request query parameters.
  * @param {Function} transformer Optional transform function.
+ * @returns {[number, number]|null}
  */
 const parseCoordinates = (coordinatePair, query, transformer) => {
   const parsedCoordinates = parseCoordinatePair(coordinatePair, query);
@@ -144,10 +148,74 @@ const parseCoordinates = (coordinatePair, query, transformer) => {
 };
 
 /**
+ * @typedef {Object} Tile
+ * @property {number} z
+ * @property {number} x
+ * @property {number} y
+ */
+
+/**
+ * Parses encoded zxy tiles provided via request body into a list of tile objects.
+ * 
+ * @param {Object} body Request body.
+ * @param {Object} body.encoded body param.
+ * @param {Function} transformer Optional transform function.
+ * @returns {Tile[]} tile objects
+ */
+const extractEncodedTilesFromBody = (body, transformer) => {
+  const tiles = [];
+
+  if (body && 'encoded' in body && body.encoded) {
+    const encoded = Array.isArray(body.encoded) ? body.encoded : [body.encoded];
+
+    // Z X Y triples are encoded according to:
+    //   https://developers.google.com/maps/documentation/utilities/polylinealgorithm
+    // The only difference is each value is encoded as it is, instead of the the offset from the previous point as
+    // stated in the above link
+
+    for (const it of encoded) {
+      const length = it.length;
+
+      let index = 0;
+      while (index < length) {
+        const zxy = [0, 0, 0];
+        for (let i = 0; i < 3; i += 1) {
+          let result = 1;
+          let shift = 0;
+
+          let b;
+          do {
+            b = it.charAt(index++).charCodeAt(0) - 63 - 1;
+            result += b << shift;
+            shift += 5;
+          } while (b >= 0x1f);
+
+          zxy[i] = result >> 1;
+        }
+
+        const [z, x, y] = zxy;
+        const z2 = Math.pow(2, z);
+        if (x < 0 || y < 0 || z < 0 || z > 20 || x >= z2 || y >= z2) {
+          console.log('Skipping invalid tile %s (%s/%s/%s)', id, z, x, y);
+        } else {
+          const coords = transformer ? transformer([x, y]) : [x, y];
+          /** @type {Tile} */
+          const tile = { x: coords[0], y: coords[1], z: z };
+          tiles.push(tile);
+        }
+      }
+    }
+  }
+
+  return tiles;
+};
+
+/**
  * Parses paths provided via query into a list of path objects.
  *
  * @param {object} query Request query parameters.
  * @param {Function} transformer Optional transform function.
+ * @returns {[number, number][][]}
  */
 const extractPathsFromQuery = (query, transformer) => {
   // Initiate paths array
@@ -249,16 +317,30 @@ const parseMarkerOptions = (optionsList, marker) => {
           marker.offsetY = parseFloat(providedOffset[1]);
         }
         break;
+      case 'anchor':
+        const anchor = optionParts[1];
+        if (anchor == 'center') {
+          marker.center = true;
+        } else {
+          // TODO: support other anchors??
+        }
+        break;
     }
   }
 };
 
+/**
+ * @typedef Marker
+ * @property {[number,number]} location
+ * @property {string} icon
+ */
 /**
  * Parses markers provided via query into a list of marker objects.
  *
  * @param {object} query Request query parameters.
  * @param {object} options Configuration options.
  * @param {Function} transformer Optional transform function.
+ * @returns {Marker[]}
  */
 const extractMarkersFromQuery = (query, options, transformer) => {
   // Return an empty list if no markers have been provided
@@ -368,14 +450,18 @@ const drawMarker = (ctx, marker, z) => {
       // the provided location
       let yCoordinate = pixelCoords[1] - imageHeight;
 
-      // Since image placement is dependent on the size offsets have to be
-      // scaled as well. Additionally offsets are provided as either positive or
-      // negative values so we always add them
-      if (marker.offsetX) {
-        xCoordinate = xCoordinate + marker.offsetX * scale;
-      }
-      if (marker.offsetY) {
-        yCoordinate = yCoordinate + marker.offsetY * scale;
+      if ('center' in marker && marker.center) {
+        yCoordinate = pixelCoords[1] - imageHeight / 2;
+      } else {
+        // Since image placement is dependent on the size offsets have to be
+        // scaled as well. Additionally offsets are provided as either positive or
+        // negative values so we always add them
+        if (marker.offsetX) {
+          xCoordinate = xCoordinate + marker.offsetX * scale;
+        }
+        if (marker.offsetY) {
+          yCoordinate = yCoordinate + marker.offsetY * scale;
+        }
       }
 
       return {
@@ -440,11 +526,15 @@ const drawMarkers = async (ctx, markers, z) => {
  * Draws a list of coordinates onto a canvas and styles the resulting path.
  *
  * @param {object} ctx Canvas context object.
- * @param {List[Number]} path List of coordinates.
+ * @param {number[]} path List of coordinates.
  * @param {object} query Request query parameters.
  * @param {number} z Map zoom level.
  */
 const drawPath = (ctx, path, query, z) => {
+  /**
+   * @function
+   * @param {string[]} splitPaths
+   */
   const renderPath = (splitPaths) => {
     if (!path || path.length < 2) {
       return null;
@@ -549,6 +639,170 @@ const drawPath = (ctx, path, query, z) => {
   } else {
     renderPath(decodeURIComponent(query.path).split('|'));
   }
+};
+
+/**
+ * NOTE(cg): This is just a copy of `respondImage` without setting `res`, we just want the image.
+ *  When pulling upstream changes, this will have to mirror that function if anything has changed. :(
+ * 
+ * @returns {Buffer|string|null}
+ */
+const renderImage = async (
+  options,
+  item,
+  z,
+  lon,
+  lat,
+  width,
+  height,
+  scale,
+  format,
+) => {
+  if (
+    Math.abs(lon) > 180 ||
+    Math.abs(lat) > 85.06 ||
+    lon !== lon ||
+    lat !== lat
+  ) {
+    return 'Invalid center';
+  }
+
+  if (
+    Math.min(width, height) <= 0 ||
+    Math.max(width, height) * scale > (options.maxSize || 2048) ||
+    width !== width ||
+    height !== height
+  ) {
+    return 'Invalid size';
+  }
+
+  if (format === 'png' || format === 'webp') {
+  } else if (format === 'jpg' || format === 'jpeg') {
+    format = 'jpeg';
+  } else {
+    return 'Invalid format';
+  }
+
+  const tileMargin = Math.max(options.tileMargin || 0, 0);
+  /** @type {advancedPool.Pool} */
+  let pool;
+  if (tileMargin === 0) {
+    pool = item.map.renderers[scale];
+  } else {
+    pool = item.map.renderers_static[scale];
+  }
+
+  try {
+    // pool.acquire((err, renderer) => ...
+    const renderer = await new Promise((resolve, reject) => {
+      pool.acquire((error, renderer) => error ? reject(error) : resolve(renderer));
+    });
+
+    const mlglZ = Math.max(0, z - 1);
+    const params = {
+      zoom: mlglZ,
+      center: [lon, lat],
+      width: width,
+      height: height,
+    };
+
+    if (z === 0) {
+      params.width *= 2;
+      params.height *= 2;
+    }
+
+    if (z > 2 && tileMargin > 0) {
+      params.width += tileMargin * 2;
+      params.height += tileMargin * 2;
+    }
+
+    // renderer.render(params, (err, data) => ...
+    const data = await new Promise((resolve, reject) => {
+      renderer.render(params, (err, data) => {
+        pool.release(renderer);
+        return err ? reject(err) : resolve(data)
+      });
+    });
+
+    // Fix semi-transparent outlines on raw, premultiplied input
+    // https://github.com/maptiler/tileserver-gl/issues/350#issuecomment-477857040
+    for (let i = 0; i < data.length; i += 4) {
+      const alpha = data[i + 3];
+      const norm = alpha / 255;
+      if (alpha === 0) {
+        data[i] = 0;
+        data[i + 1] = 0;
+        data[i + 2] = 0;
+      } else {
+        data[i] = data[i] / norm;
+        data[i + 1] = data[i + 1] / norm;
+        data[i + 2] = data[i + 2] / norm;
+      }
+    }
+
+    const image = sharp(data, {
+      raw: {
+        width: params.width * scale,
+        height: params.height * scale,
+        channels: 4,
+      },
+    });
+
+    if (z > 2 && tileMargin > 0) {
+      const [_, y] = mercator.px(params.center, z);
+      let yoffset = Math.max(
+        Math.min(0, y - 128 - tileMargin),
+        y + 128 + tileMargin - Math.pow(2, z + 8),
+      );
+      image.extract({
+        left: tileMargin * scale,
+        top: (tileMargin + yoffset) * scale,
+        width: width * scale,
+        height: height * scale,
+      });
+    }
+
+    if (z === 0) {
+      // HACK: when serving zoom 0, resize the 0 tile from 512 to 256
+      image.resize(width * scale, height * scale);
+    }
+
+    var composite_array = [];
+    if (item.watermark) {
+      const canvas = createCanvas(scale * width, scale * height);
+      const ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+      ctx.font = '10px sans-serif';
+      ctx.strokeWidth = '1px';
+      ctx.strokeStyle = 'rgba(255,255,255,.4)';
+      ctx.strokeText(item.watermark, 5, height - 5);
+      ctx.fillStyle = 'rgba(0,0,0,.4)';
+      ctx.fillText(item.watermark, 5, height - 5);
+
+      composite_array.push({ input: canvas.toBuffer() });
+    }
+
+    if (composite_array.length > 0) {
+      image.composite(composite_array);
+    }
+
+    const formatQuality = (options.formatQuality || {})[format];
+
+    if (format === 'png') {
+      image.png({ adaptiveFiltering: false });
+    } else if (format === 'jpeg') {
+      image.jpeg({ quality: formatQuality || 80 });
+    } else if (format === 'webp') {
+      image.webp({ quality: formatQuality || 90 });
+    }
+
+    const buffer = await image.toBuffer();
+    return buffer;
+  } catch (error) {
+    console.error(error);
+  }
+
+  return null;
 };
 
 const renderOverlay = async (
@@ -1171,6 +1425,162 @@ export const serve_rendered = {
           );
         },
       );
+
+      // Accept our (Googles) staticmap requests and reformat/redirect them to tileserver's format
+      //  e.g. https://tiles.anglersatlas.com/osm/staticmap?size=468x468&center=53.94491,-122.74789&markers=53.94491,-122.74789&zoom=15
+      //  e.g. https://tiles.anglersatlas.com/osm/staticmap?size=468x468&path=weight:3|color:0x4fc0c4FF|enc:ucskH%...&path=weight:3|color:0x4fc0c4FF|enc:y%60skH...
+      app.get(
+        '/:id/staticmap',
+        async (req, res, next) => {
+          const item = repo[req.params.id];
+          if (!item) {
+            return res.sendStatus(404);
+          }
+
+          const size = req.query.size ?? '256x256';
+          const [width, height] = size.split('x', 2);
+
+          let url = `/styles/${req.params.id}/static`;
+
+          if (req.query.center && req.query.zoom) {
+            const center = req.query.center;
+            const [lat, lon] = center.split(',', 2);
+            const zoom = req.query.zoom;
+
+            url += `/${lon},${lat},${zoom}`;
+          } else {
+            url += '/auto';
+          }
+
+          url += `/${width}x${height}.png`;
+
+          let query = [];
+          let latlng = false;
+          for (const key in req.query) {
+            let k = key.toLowerCase();
+            if (k !== 'size' || k !== 'center' || j !== 'zoom') {
+              const v = req.query[key];
+
+              // Rewrite, markers into expected tileserver-gl format
+              // marker - Marker in format lng,lat|iconPath|option|option|...
+              // Incoming: markers=anchor:center|icon:https://www.anglersatlas.com/media/camping-bc/marker-bcparks.png|53.935316,-121.8837446
+              if (k == 'markers') {
+                latlng = true;
+
+                const markers = Array.isArray(v) ? v : [v];
+                for (const marker of markers) {
+                  /** @type {string[]} */
+                  const parts = marker.split('|');
+                  // location is always last (I hope)
+                  let value = parts[parts.length - 1];
+
+                  // let icon = '|https://anglersatlas.com/assets/markers/trip-dot.png';
+                  let icon = null;
+                  let options = '';
+                  for (const part of parts.slice(0, parts.length - 1)) {
+                    const split = part.indexOf(':');
+                    const option = part.substring(0, split);
+                    const value = part.substring(split + 1);
+
+                    if (option == 'icon') {
+                      icon = `|${value}`;
+                      // } else if (option == 'anchor') {
+                      //   // TODO: map from `anchor` to `offset`? Have to know size of icon ahead of time :(
+                    } else {
+                      options += `|${part}`;
+                    }
+                  }
+
+                  if (!icon) {
+                    icon = '|trip-dot.png';
+                    options += '|offset:24,24';
+                  }
+
+                  value += icon;
+                  value += options;
+
+                  query.push(`marker=${value}`);
+                }
+              }
+              // Rewrite path into expected tileserver-gl format
+              // Match pattern: ((fill|stroke|width):[^|]+|)*((enc:.+)|((-?d+.?d*,-?d+.?d*|)+(-?d+.?d*,-?d+.?d*)))
+              // Incoming: path=weight:3|color:0x4fc0c4FF|enc:... &path=weight:3|color:0x4fc0c4FF|enc:...
+              else if (k == 'path') {
+                const paths = Array.isArray(v) ? v : [v];
+                for (const path of paths) {
+                  const parts = path.split('|');
+
+                  let options = {};
+                  let coords = [];
+                  for (const part of parts) {
+                    const split = part.indexOf(':');
+
+                    if (split == -1) {
+                      coords.push(part);
+                    } else {
+                      let option = part.substring(0, split);
+                      let value = part.substring(split + 1);
+
+                      // rename weight -> width
+                      if (option == 'weight') {
+                        option = 'width';
+                      }
+
+                      if (option == 'color') {
+                        let r = 255;
+                        let g = 255;
+                        let b = 255;
+                        let a = 1.0;
+
+                        // convert from 0xrrggbbaa/0xrrggbb to rgba(...)
+                        if (value.startsWith('0x') || value.startsWith('0X')) {
+                          const end = value.length;
+                          const hex = parseInt(value.substring(2, end), 16);
+                          r = (hex >> 24) & 255;
+                          g = (hex >> 16) & 255;
+                          b = (hex >> 8) & 255;
+                          if (end == 10) {
+                            a = ((hex & 255) / 255).toFixed(1);
+                          }
+                        }
+
+                        option = 'stroke';
+                        value = `rgba(${r} ${g} ${b} ${a})`;
+                      }
+
+                      options[option] = value;
+                    }
+                  }
+
+                  if (coords.length) {
+                    latlng = true;
+
+                    query.push(`path=${coords.join('|')}`);
+                    for (const q in options) {
+                      query.push(`${q}=${options[q]}`);
+                    }
+                  } else {
+                    const value = Object.keys(options).map((it) => `${it}:${options[it]}`).join('|');
+                    query.push(`path=${value}`);
+                  }
+                }
+              } else {
+                query.push(`${k}=${v}`);
+              }
+            }
+          }
+
+          if (latlng) {
+            query.push('latlng=1');
+          }
+
+          if (query.length) {
+            url += '?' + query.join('&');
+          }
+
+          return res.redirect(url);
+        },
+      )
     }
 
     app.get('/:id.json', (req, res, next) => {
@@ -1187,6 +1597,62 @@ export const serve_rendered = {
         item.publicUrl,
       );
       return res.send(info);
+    });
+
+    // NOTE(cg): Take an encoded list of zxy tiles and bundle them in a zip
+    app.post('/:id/bundle', async (req, res) => {
+      const item = repo[req.params.id];
+      if (!item) {
+        return res.sendStatus(404);
+      }
+
+      const w = req.query.width | 256;
+      const h = req.query.height | 256;
+      const scale = req.query.scale | 1;
+      const format = req.query.format ?? 'jpeg';
+
+      const transformer = item.dataProjWGStoInternalWGS;
+      const tiles = extractEncodedTilesFromBody(req.body, transformer);
+
+      const path = "/tmp/";
+      const filename = crypto.randomUUID() + '.zip';
+      const filepath = path + filename;
+
+      if (tiles.length) {
+        const images = await Promise.all(
+          tiles.map(({ z, x, y }) => {
+            const tileCenter = mercator.ll([((x + 0.5) / (1 << z)) * (256 << z), ((y + 0.5) / (1 << z)) * (256 << z)], z);
+            const filename = `z${z}x${x}y${y}.${format}`;
+            return renderImage(options, item, z, tileCenter[0], tileCenter[1], w, h, scale, format)
+              .then((bufferOrError) => {
+                let result = null;
+                if (typeof bufferOrError === 'string') {
+                  console.log(bufferOrError);
+                } else if (bufferOrError) {
+                  result = { buffer: bufferOrError, filename: filename };
+                }
+                return result;
+              });
+          })
+        );
+
+        const out = fs.createWriteStream(filepath);
+        const zip = archiver('zip', { zlib: { level: 9 } });
+        zip.pipe(out);
+        for (const image of images) {
+          if (!image) continue;
+
+          zip.append(image.buffer, { name: image.filename });
+        }
+        await zip.finalize();
+        out.close(() => {
+          res.status(200)
+            .contentType('application/zip, application/octet-stream')
+            .sendFile(filepath, () => { fs.unlinkSync(filepath) });
+        });
+      } else {
+        res.sendStatus(204);
+      }
     });
 
     return Promise.all([fontListingPromise]).then(() => app);
