@@ -1454,116 +1454,118 @@ export const serve_rendered = {
 
           url += `/${width}x${height}.png`;
 
+          delete req.query['size'];
+          delete req.query['center'];
+          delete req.query['zoom'];
+
           let query = [];
           let latlng = false;
           for (const key in req.query) {
-            let k = key.toLowerCase();
-            if (k !== 'size' || k !== 'center' || j !== 'zoom') {
-              const v = req.query[key];
+            const k = key.toLowerCase();
+            const v = req.query[key];
 
-              // Rewrite, markers into expected tileserver-gl format
-              // marker - Marker in format lng,lat|iconPath|option|option|...
-              // Incoming: markers=anchor:center|icon:https://www.anglersatlas.com/media/camping-bc/marker-bcparks.png|53.935316,-121.8837446
-              if (k == 'markers') {
-                latlng = true;
+            // Rewrite, markers into expected tileserver-gl format
+            // marker - Marker in format lng,lat|iconPath|option|option|...
+            // Incoming: markers=anchor:center|icon:https://www.anglersatlas.com/media/camping-bc/marker-bcparks.png|53.935316,-121.8837446
+            if (k == 'markers') {
+              latlng = true;
 
-                const markers = Array.isArray(v) ? v : [v];
-                for (const marker of markers) {
-                  /** @type {string[]} */
-                  const parts = marker.split('|');
-                  // location is always last (I hope)
-                  let value = parts[parts.length - 1];
+              const markers = Array.isArray(v) ? v : [v];
+              for (const marker of markers) {
+                /** @type {string[]} */
+                const parts = marker.split('|');
+                // location is always last (I hope)
+                let value = parts[parts.length - 1];
 
-                  let icon = null;
-                  let options = '';
-                  for (const part of parts.slice(0, parts.length - 1)) {
-                    const split = part.indexOf(':');
-                    const option = part.substring(0, split);
-                    const value = part.substring(split + 1);
+                let icon = null;
+                let options = '';
+                for (const part of parts.slice(0, parts.length - 1)) {
+                  const split = part.indexOf(':');
+                  const option = part.substring(0, split);
+                  const value = part.substring(split + 1);
 
-                    if (option == 'icon') {
-                      icon = `|${value}`;
-                    } else {
-                      options += `|${part}`;
-                    }
-                  }
-
-                  if (!icon) {
-                    icon = '|https://www.anglersatlas.com/media/markers/trip-dot.png';
-                    options += '|anchor:center';
-                  }
-
-                  value += icon;
-                  value += options;
-
-                  query.push(`marker=${value}`);
-                }
-              }
-              // Rewrite path into expected tileserver-gl format
-              // Match pattern: ((fill|stroke|width):[^|]+|)*((enc:.+)|((-?d+.?d*,-?d+.?d*|)+(-?d+.?d*,-?d+.?d*)))
-              // Incoming: path=weight:3|color:0x4fc0c4FF|enc:... &path=weight:3|color:0x4fc0c4FF|enc:...
-              else if (k == 'path') {
-                const paths = Array.isArray(v) ? v : [v];
-                for (const path of paths) {
-                  const parts = path.split('|');
-
-                  let options = {};
-                  let coords = [];
-                  for (const part of parts) {
-                    const split = part.indexOf(':');
-
-                    if (split == -1) {
-                      coords.push(part);
-                    } else {
-                      let option = part.substring(0, split);
-                      let value = part.substring(split + 1);
-
-                      // rename weight -> width
-                      if (option == 'weight') {
-                        option = 'width';
-                      }
-
-                      if (option == 'color') {
-                        let r = 255;
-                        let g = 255;
-                        let b = 255;
-                        let a = 1.0;
-
-                        // convert from 0xrrggbbaa/0xrrggbb to rgba(...)
-                        if (value.startsWith('0x') || value.startsWith('0X')) {
-                          const end = value.length;
-                          const hex = parseInt(value.substring(2, end), 16);
-                          r = (hex >> 24) & 255;
-                          g = (hex >> 16) & 255;
-                          b = (hex >> 8) & 255;
-                          if (end == 10) {
-                            a = ((hex & 255) / 255).toFixed(1);
-                          }
-                        }
-
-                        option = 'stroke';
-                        value = `rgba(${r} ${g} ${b} ${a})`;
-                      }
-
-                      options[option] = value;
-                    }
-                  }
-
-                  if (coords.length) {
-                    latlng = true;
-
-                    query.push(`path=${coords.join('|')}`);
-                    for (const q in options) {
-                      query.push(`${q}=${options[q]}`);
-                    }
+                  if (option == 'icon') {
+                    icon = `|${value}`;
                   } else {
-                    const value = Object.keys(options).map((it) => `${it}:${options[it]}`).join('|');
-                    query.push(`path=${value}`);
+                    options += `|${part}`;
                   }
                 }
-              } else {
-                query.push(`${k}=${v}`);
+
+                if (!icon) {
+                  icon = '|https://www.anglersatlas.com/media/markers/trip-dot.png';
+                  options += '|anchor:center';
+                }
+
+                value += icon;
+                value += options;
+
+                query.push(`marker=${value}`);
               }
+            }
+            // Rewrite path into expected tileserver-gl format
+            // Match pattern: ((fill|stroke|width):[^|]+|)*((enc:.+)|((-?d+.?d*,-?d+.?d*|)+(-?d+.?d*,-?d+.?d*)))
+            // Incoming: path=weight:3|color:0x4fc0c4FF|enc:... &path=weight:3|color:0x4fc0c4FF|enc:...
+            else if (k == 'path') {
+              const paths = Array.isArray(v) ? v : [v];
+              for (const path of paths) {
+                const parts = path.split('|');
+
+                let options = {};
+                let coords = [];
+                for (const part of parts) {
+                  const split = part.indexOf(':');
+
+                  if (split == -1) {
+                    coords.push(part);
+                  } else {
+                    let option = part.substring(0, split);
+                    let value = part.substring(split + 1);
+
+                    // rename weight -> width
+                    if (option == 'weight') {
+                      option = 'width';
+                    }
+
+                    if (option == 'color') {
+                      let r = 255;
+                      let g = 255;
+                      let b = 255;
+                      let a = 1.0;
+
+                      // convert from 0xrrggbbaa/0xrrggbb to rgba(...)
+                      if (value.startsWith('0x') || value.startsWith('0X')) {
+                        const end = value.length;
+                        const hex = parseInt(value.substring(2, end), 16);
+                        r = (hex >> 24) & 255;
+                        g = (hex >> 16) & 255;
+                        b = (hex >> 8) & 255;
+                        if (end == 10) {
+                          a = ((hex & 255) / 255).toFixed(1);
+                        }
+                      }
+
+                      option = 'stroke';
+                      value = `rgba(${r} ${g} ${b} ${a})`;
+                    }
+
+                    options[option] = value;
+                  }
+                }
+
+                if (coords.length) {
+                  latlng = true;
+
+                  query.push(`path=${coords.join('|')}`);
+                  for (const q in options) {
+                    query.push(`${q}=${options[q]}`);
+                  }
+                } else {
+                  const value = Object.keys(options).map((it) => `${it}:${options[it]}`).join('|');
+                  query.push(`path=${value}`);
+                }
+              }
+            } else {
+              query.push(`${k}=${v}`);
             }
           }
 
