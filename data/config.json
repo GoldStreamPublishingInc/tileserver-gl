@@ -4,6 +4,7 @@
       "root": "",
       "fonts": "fonts"
     },
+    "allowRemoteMarkerIcons": true,
     "sentry_dsn": "https://03cd2f3d5454460bad26632f2b3ef190@o180155.ingest.sentry.io/1855587"
   },
   "styles": {
