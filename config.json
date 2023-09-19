@@ -12,20 +12,11 @@
     },
     "bathymetry": {
       "style": "bathymetry.json"
-    },
-    "satellite": {
-      "style": "satellite.json"
-    },
-    "hybrid": {
-      "style": "hybrid.json"
     }
   },
   "data": {
     "osm": {
       "mbtiles": "osm.mbtiles"
-    },
-    "satellite": {
-      "mbtiles": "satellite.mbtiles"
     },
     "bathymetry": {
       "mbtiles": "bathymetry.mbtiles"
