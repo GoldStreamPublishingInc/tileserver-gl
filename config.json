@@ -1,0 +1,37 @@
+{
+  "options": {
+    "paths": {
+      "root": "data",
+      "fonts": "fonts"
+    },
+    "sentry_dsn": "https://03cd2f3d5454460bad26632f2b3ef190@o180155.ingest.sentry.io/1855587"
+  },
+  "styles": {
+    "osm": {
+      "style": "osm.json"
+    },
+    "bathymetry": {
+      "style": "bathymetry.json"
+    },
+    "satellite": {
+      "style": "satellite.json"
+    },
+    "hybrid": {
+      "style": "hybrid.json"
+    }
+  },
+  "data": {
+    "osm": {
+      "mbtiles": "osm.mbtiles"
+    },
+    "satellite": {
+      "mbtiles": "satellite.mbtiles"
+    },
+    "bathymetry": {
+      "mbtiles": "bathymetry.mbtiles"
+    },
+    "bathymetry-us": {
+      "mbtiles": "bathymetry-us.mbtiles"
+    }
+  }
+}
