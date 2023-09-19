@@ -1440,7 +1440,7 @@ export const serve_rendered = {
           const size = req.query.size ?? '256x256';
           const [width, height] = size.split('x', 2);
 
-          let url = `/styles/${req.params.id}/static`;
+          let url = `/${req.params.id}/static`;
 
           if (req.query.center && req.query.zoom) {
             const center = req.query.center;
