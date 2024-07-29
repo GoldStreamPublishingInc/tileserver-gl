@@ -1,14 +1,45 @@
 'use strict';
 
 import path from 'path';
-import fs from 'node:fs';
-
+import fsPromises from 'fs/promises';
+import fs, { existsSync } from 'node:fs';
 import clone from 'clone';
-import glyphCompose from '@mapbox/glyph-pbf-composite';
+import { combine } from '@jsse/pbfont';
+
+/**
+ * Restrict user input to an allowed set of options.
+ * @param opts
+ * @param root0
+ * @param root0.defaultValue
+ */
+export function allowedOptions(opts, { defaultValue } = {}) {
+  const values = Object.fromEntries(opts.map((key) => [key, key]));
+  return (value) => values[value] || defaultValue;
+}
+
+/**
+ * Replace local:// urls with public http(s):// urls
+ * @param req
+ * @param url
+ * @param publicUrl
+ */
+export function fixUrl(req, url, publicUrl) {
+  if (!url || typeof url !== 'string' || url.indexOf('local://') !== 0) {
+    return url;
+  }
+  const queryParams = [];
+  if (req.query.key) {
+    queryParams.unshift(`key=${encodeURIComponent(req.query.key)}`);
+  }
+  let query = '';
+  if (queryParams.length) {
+    query = `?${queryParams.join('&')}`;
+  }
+  return url.replace('local://', getPublicUrl(publicUrl, req)) + query;
+}
 
 /**
  * Generate new URL object
- *
  * @param req
  * @params {object} req - Express request
  * @returns {URL} object
@@ -17,6 +48,12 @@ const getUrlObject = (req) => {
   const urlObject = new URL(`${req.protocol}://${req.headers.host}/`);
   // support overriding hostname by sending X-Forwarded-Host http header
   urlObject.hostname = req.hostname;
+
+  // support add url prefix by sending X-Forwarded-Path http header
+  const xForwardedPath = req.get('X-Forwarded-Path');
+  if (xForwardedPath) {
+    urlObject.pathname = path.posix.join(xForwardedPath, urlObject.pathname);
+  }
   return urlObject;
 };
 
@@ -27,7 +64,15 @@ export const getPublicUrl = (publicUrl, req) => {
   return getUrlObject(req).toString();
 };
 
-export const getTileUrls = (req, domains, path, format, publicUrl, aliases) => {
+export const getTileUrls = (
+  req,
+  domains,
+  path,
+  tileSize,
+  format,
+  publicUrl,
+  aliases,
+) => {
   const urlObject = getUrlObject(req);
   if (domains) {
     if (domains.constructor === String && domains.length > 0) {
@@ -68,15 +113,21 @@ export const getTileUrls = (req, domains, path, format, publicUrl, aliases) => {
     format = aliases[format];
   }
 
+  let tileParams = `{z}/{x}/{y}`;
+  if (tileSize && ['png', 'jpg', 'jpeg', 'webp'].includes(format)) {
+    tileParams = `${tileSize}/{z}/{x}/{y}`;
+  }
+
   const uris = [];
   if (!publicUrl) {
+    let xForwardedPath = `${req.get('X-Forwarded-Path') ? '/' + req.get('X-Forwarded-Path') : ''}`;
     for (const domain of domains) {
       uris.push(
-        `${req.protocol}://${domain}/${path}/{z}/{x}/{y}.${format}${query}`,
+        `${req.protocol}://${domain}${xForwardedPath}/${path}/${tileParams}.${format}${query}`,
       );
     }
   } else {
-    uris.push(`${publicUrl}${path}/{z}/{x}/{y}.${format}${query}`);
+    uris.push(`${publicUrl}${path}/${tileParams}.${format}${query}`);
   }
 
   return uris;
@@ -141,7 +192,7 @@ const getFontPbf = (allowedFonts, fontPath, name, range, fallbacks) =>
     }
   });
 
-export const getFontsPbf = (
+export const getFontsPbf = async (
   allowedFonts,
   fontPath,
   names,
@@ -162,5 +213,35 @@ export const getFontsPbf = (
     );
   }
 
-  return Promise.all(queue).then((values) => glyphCompose.combine(values));
+  const combined = combine(await Promise.all(queue), names);
+  return Buffer.from(combined.buffer, 0, combined.buffer.length);
+};
+
+export const listFonts = async (fontPath) => {
+  const existingFonts = {};
+
+  const files = await fsPromises.readdir(fontPath);
+  for (const file of files) {
+    const stats = await fsPromises.stat(path.join(fontPath, file));
+    if (
+      stats.isDirectory() &&
+      existsSync(path.join(fontPath, file, '0-255.pbf'))
+    ) {
+      existingFonts[path.basename(file)] = true;
+    }
+  }
+
+  return existingFonts;
+};
+
+export const isValidHttpUrl = (string) => {
+  let url;
+
+  try {
+    url = new URL(string);
+  } catch (_) {
+    return false;
+  }
+
+  return url.protocol === 'http:' || url.protocol === 'https:';
 };

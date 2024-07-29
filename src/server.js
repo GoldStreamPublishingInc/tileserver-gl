@@ -6,7 +6,7 @@ process.env.UV_THREADPOOL_SIZE = Math.ceil(Math.max(4, os.cpus().length * 1.5));
 
 import fs from 'node:fs';
 import path from 'path';
-
+import fnv1a from '@sindresorhus/fnv1a';
 import chokidar from 'chokidar';
 import clone from 'clone';
 import cors from 'cors';
@@ -19,8 +19,7 @@ import morgan from 'morgan';
 import { serve_data } from './serve_data.js';
 import { serve_style } from './serve_style.js';
 import { serve_font } from './serve_font.js';
-import { getTileUrls, getPublicUrl } from './utils.js';
-import * as Sentry from '@sentry/node';
+import { getTileUrls, getPublicUrl, isValidHttpUrl } from './utils.js';
 
 import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
@@ -40,6 +39,31 @@ const serve_rendered = (
  */
 function start(opts) {
   console.log('Starting server');
+
+  const app = express().disable('x-powered-by');
+  const serving = {
+    styles: {},
+    rendered: {},
+    data: {},
+    fonts: {},
+  };
+
+  app.enable('trust proxy');
+
+  if (process.env.NODE_ENV !== 'test') {
+    const defaultLogFormat =
+      process.env.NODE_ENV === 'production' ? 'tiny' : 'dev';
+    const logFormat = opts.logFormat || defaultLogFormat;
+    app.use(
+      morgan(logFormat, {
+        stream: opts.logFile
+          ? fs.createWriteStream(opts.logFile, { flags: 'a' })
+          : process.stdout,
+        skip: (req, res) =>
+          opts.silent && (res.statusCode === 200 || res.statusCode === 304),
+      }),
+    );
+  }
 
   let config = opts.config || null;
   let configPath = null;
@@ -69,43 +93,8 @@ function start(opts) {
   paths.fonts = path.resolve(paths.root, paths.fonts || '');
   paths.sprites = path.resolve(paths.root, paths.sprites || '');
   paths.mbtiles = path.resolve(paths.root, paths.mbtiles || '');
+  paths.pmtiles = path.resolve(paths.root, paths.pmtiles || '');
   paths.icons = path.resolve(paths.root, paths.icons || '');
-
-  const app = express();
-
-  const sentryEnabled = 'sentry_dsn' in options
-  if (sentryEnabled) {
-    Sentry.init({ dsn: options.sentry_dsn });
-    app.use(Sentry.Handlers.requestHandler());
-  }
-
-  app.disable('x-powered-by');
-  app.enable('trust proxy');
-
-  // NOTE(cg): `/styles/:id/bundle` expects URL encoded POST body
-  app.use(express.urlencoded({ extended: true }));
-
-  const serving = {
-    styles: {},
-    rendered: {},
-    data: {},
-    fonts: {},
-  };
-
-  if (process.env.NODE_ENV !== 'test') {
-    const defaultLogFormat =
-      process.env.NODE_ENV === 'production' ? 'tiny' : 'dev';
-    const logFormat = opts.logFormat || defaultLogFormat;
-    app.use(
-      morgan(logFormat, {
-        stream: opts.logFile
-          ? fs.createWriteStream(opts.logFile, { flags: 'a' })
-          : process.stdout,
-        skip: (req, res) =>
-          opts.silent && (res.statusCode === 200 || res.statusCode === 304),
-      }),
-    );
-  }
 
   const startupPromises = [];
 
@@ -121,12 +110,12 @@ function start(opts) {
   checkPath('fonts');
   checkPath('sprites');
   checkPath('mbtiles');
+  checkPath('pmtiles');
   checkPath('icons');
 
   /**
    * Recursively get all files within a directory.
    * Inspired by https://stackoverflow.com/a/45130990/10133863
-   *
    * @param {string} directory Absolute path to a directory to get files from.
    */
   const getFiles = async (directory) => {
@@ -152,20 +141,16 @@ function start(opts) {
 
   // Load all available icons into a settings object
   startupPromises.push(
-    new Promise((resolve) => {
-      getFiles(paths.icons).then((files) => {
-        paths.availableIcons = files;
-        resolve();
-      });
+    getFiles(paths.icons).then((files) => {
+      paths.availableIcons = files;
     }),
   );
 
   if (options.dataDecorator) {
     try {
-      options.dataDecoratorFunc = require(path.resolve(
-        paths.root,
-        options.dataDecorator,
-      ));
+      options.dataDecoratorFunc = require(
+        path.resolve(paths.root, options.dataDecorator),
+      );
     } catch (e) {}
   }
 
@@ -194,34 +179,43 @@ function start(opts) {
         item,
         id,
         opts.publicUrl,
-        (mbtiles, fromData) => {
+        (styleSourceId, protocol) => {
           let dataItemId;
           for (const id of Object.keys(data)) {
-            if (fromData) {
-              if (id === mbtiles) {
-                dataItemId = id;
-              }
+            if (id === styleSourceId) {
+              // Style id was found in data ids, return that id
+              dataItemId = id;
             } else {
-              if (data[id].mbtiles === mbtiles) {
+              const fileType = Object.keys(data[id])[0];
+              if (data[id][fileType] === styleSourceId) {
+                // Style id was found in data filename, return the id that filename belong to
                 dataItemId = id;
               }
             }
           }
           if (dataItemId) {
-            // mbtiles exist in the data config
+            // input files exists in the data config, return found id
             return dataItemId;
           } else {
-            if (fromData || !allowMoreData) {
+            if (!allowMoreData) {
               console.log(
-                `ERROR: style "${item.style}" using unknown mbtiles "${mbtiles}"! Skipping...`,
+                `ERROR: style "${item.style}" using unknown file "${styleSourceId}"! Skipping...`,
               );
               return undefined;
             } else {
-              let id = mbtiles.substr(0, mbtiles.lastIndexOf('.')) || mbtiles;
-              while (data[id]) id += '_';
+              let id =
+                styleSourceId.substr(0, styleSourceId.lastIndexOf('.')) ||
+                styleSourceId;
+              if (isValidHttpUrl(styleSourceId)) {
+                id =
+                  fnv1a(styleSourceId) + '_' + id.replace(/^.*\/(.*)$/, '$1');
+              }
+              while (data[id]) id += '_'; //if the data source id already exists, add a "_" untill it doesn't
+              //Add the new data source to the data array.
               data[id] = {
-                mbtiles: mbtiles,
+                [protocol]: styleSourceId,
               };
+
               return id;
             }
           }
@@ -242,14 +236,24 @@ function start(opts) {
             item,
             id,
             opts.publicUrl,
-            (mbtiles) => {
-              let mbtilesFile;
+            function dataResolver(styleSourceId) {
+              let fileType;
+              let inputFile;
               for (const id of Object.keys(data)) {
-                if (id === mbtiles) {
-                  mbtilesFile = data[id].mbtiles;
+                fileType = Object.keys(data[id])[0];
+                if (styleSourceId == id) {
+                  inputFile = data[id][fileType];
+                  break;
+                } else if (data[id][fileType] == styleSourceId) {
+                  inputFile = data[id][fileType];
+                  break;
                 }
               }
-              return mbtilesFile;
+              if (!isValidHttpUrl(inputFile)) {
+                inputFile = path.resolve(options.paths[fileType], inputFile);
+              }
+
+              return { inputFile, fileType };
             },
           ),
         );
@@ -277,8 +281,11 @@ function start(opts) {
 
   for (const id of Object.keys(data)) {
     const item = data[id];
-    if (!item.mbtiles || item.mbtiles.length === 0) {
-      console.log(`Missing "mbtiles" property for ${id}`);
+    const fileType = Object.keys(data[id])[0];
+    if (!fileType || !(fileType === 'pmtiles' || fileType === 'mbtiles')) {
+      console.log(
+        `Missing "pmtiles" or "mbtiles" property for ${id} data source`,
+      );
       continue;
     }
 
@@ -337,7 +344,7 @@ function start(opts) {
       result.push({
         version: styleJSON.version,
         name: styleJSON.name,
-        id: id,
+        id,
         url: `${getPublicUrl(
           opts.publicUrl,
           req,
@@ -347,7 +354,7 @@ function start(opts) {
     res.send(result);
   });
 
-  const addTileJSONs = (arr, req, type) => {
+  const addTileJSONs = (arr, req, type, tileSize) => {
     for (const id of Object.keys(serving[type])) {
       const info = clone(serving[type][id].tileJSON);
       let path = '';
@@ -360,6 +367,7 @@ function start(opts) {
         req,
         info.tiles,
         path,
+        tileSize,
         info.format,
         opts.publicUrl,
         {
@@ -371,14 +379,23 @@ function start(opts) {
     return arr;
   };
 
-  app.get('/rendered.json', (req, res, next) => {
-    res.send(addTileJSONs([], req, 'rendered'));
+  app.get('/(:tileSize(256|512)/)?rendered.json', (req, res, next) => {
+    const tileSize = parseInt(req.params.tileSize, 10) || undefined;
+    res.send(addTileJSONs([], req, 'rendered', tileSize));
   });
   app.get('/data.json', (req, res, next) => {
-    res.send(addTileJSONs([], req, 'data'));
+    res.send(addTileJSONs([], req, 'data', undefined));
   });
-  app.get('/index.json', (req, res, next) => {
-    res.send(addTileJSONs(addTileJSONs([], req, 'rendered'), req, 'data'));
+  app.get('/(:tileSize(256|512)/)?index.json', (req, res, next) => {
+    const tileSize = parseInt(req.params.tileSize, 10) || undefined;
+    res.send(
+      addTileJSONs(
+        addTileJSONs([], req, 'rendered', tileSize),
+        req,
+        'data',
+        undefined,
+      ),
+    );
   });
 
   // ------------------------------------
@@ -416,9 +433,8 @@ function start(opts) {
                 return res.status(404).send('Not found');
               }
             }
-            data[
-              'server_version'
-            ] = `${packageJson.name} v${packageJson.version}`;
+            data['server_version'] =
+              `${packageJson.name} v${packageJson.version}`;
             data['public_url'] = opts.publicUrl || '/';
             data['is_light'] = isLight;
             data['key_query_part'] = req.query.key
@@ -437,67 +453,75 @@ function start(opts) {
   };
 
   serveTemplate('/$', 'index', (req) => {
-    const styles = clone(serving.styles || {});
-    for (const id of Object.keys(styles)) {
-      const style = styles[id];
-      style.name = (serving.styles[id] || serving.rendered[id] || {}).name;
-      style.serving_data = serving.styles[id];
-      style.serving_rendered = serving.rendered[id];
+    let styles = {};
+    for (const id of Object.keys(serving.styles || {})) {
+      let style = {
+        ...serving.styles[id],
+        serving_data: serving.styles[id],
+        serving_rendered: serving.rendered[id],
+      };
+
       if (style.serving_rendered) {
-        const center = style.serving_rendered.tileJSON.center;
+        const { center } = style.serving_rendered.tileJSON;
         if (center) {
-          style.viewer_hash = `#${center[2]}/${center[1].toFixed(
-            5,
-          )}/${center[0].toFixed(5)}`;
+          style.viewer_hash = `#${center[2]}/${center[1].toFixed(5)}/${center[0].toFixed(5)}`;
 
           const centerPx = mercator.px([center[0], center[1]], center[2]);
-          style.thumbnail = `${center[2]}/${Math.floor(
-            centerPx[0] / 256,
-          )}/${Math.floor(centerPx[1] / 256)}.png`;
+          // Set thumbnail default size to be 256px x 256px
+          style.thumbnail = `${center[2]}/${Math.floor(centerPx[0] / 256)}/${Math.floor(centerPx[1] / 256)}.png`;
         }
 
+        const tileSize = 512;
         style.xyz_link = getTileUrls(
           req,
           style.serving_rendered.tileJSON.tiles,
           `styles/${id}`,
+          tileSize,
           style.serving_rendered.tileJSON.format,
           opts.publicUrl,
         )[0];
       }
+
+      styles[id] = style;
     }
-    const data = clone(serving.data || {});
-    for (const id of Object.keys(data)) {
-      const data_ = data[id];
-      const tilejson = data[id].tileJSON;
-      const center = tilejson.center;
+
+    let datas = {};
+    for (const id of Object.keys(serving.data || {})) {
+      let data = Object.assign({}, serving.data[id]);
+
+      const { tileJSON } = serving.data[id];
+      const { center } = tileJSON;
+
       if (center) {
-        data_.viewer_hash = `#${center[2]}/${center[1].toFixed(
+        data.viewer_hash = `#${center[2]}/${center[1].toFixed(
           5,
         )}/${center[0].toFixed(5)}`;
       }
-      data_.is_vector = tilejson.format === 'pbf';
-      if (!data_.is_vector) {
+
+      data.is_vector = tileJSON.format === 'pbf';
+      if (!data.is_vector) {
         if (center) {
           const centerPx = mercator.px([center[0], center[1]], center[2]);
-          data_.thumbnail = `${center[2]}/${Math.floor(
-            centerPx[0] / 256,
-          )}/${Math.floor(centerPx[1] / 256)}.${data_.tileJSON.format}`;
+          data.thumbnail = `${center[2]}/${Math.floor(centerPx[0] / 256)}/${Math.floor(centerPx[1] / 256)}.${tileJSON.format}`;
         }
-
-        data_.xyz_link = getTileUrls(
-          req,
-          tilejson.tiles,
-          `data/${id}`,
-          tilejson.format,
-          opts.publicUrl,
-          {
-            pbf: options.pbfAlias,
-          },
-        )[0];
       }
-      if (data_.filesize) {
+
+      const tileSize = undefined;
+      data.xyz_link = getTileUrls(
+        req,
+        tileJSON.tiles,
+        `data/${id}`,
+        tileSize,
+        tileJSON.format,
+        opts.publicUrl,
+        {
+          pbf: options.pbfAlias,
+        },
+      )[0];
+
+      if (data.filesize) {
         let suffix = 'kB';
-        let size = parseInt(data_.filesize, 10) / 1024;
+        let size = parseInt(tileJSON.filesize, 10) / 1024;
         if (size > 1024) {
           suffix = 'MB';
           size /= 1024;
@@ -506,26 +530,33 @@ function start(opts) {
           suffix = 'GB';
           size /= 1024;
         }
-        data_.formatted_filesize = `${size.toFixed(2)} ${suffix}`;
+        data.formatted_filesize = `${size.toFixed(2)} ${suffix}`;
       }
+
+      datas[id] = data;
     }
+
     return {
       styles: Object.keys(styles).length ? styles : null,
-      data: Object.keys(data).length ? data : null,
+      data: Object.keys(datas).length ? datas : null,
     };
   });
 
   serveTemplate('/styles/:id/$', 'viewer', (req) => {
-    const id = req.params.id;
+    const { id } = req.params;
     const style = clone(((serving.styles || {})[id] || {}).styleJSON);
+
     if (!style) {
       return null;
     }
-    style.id = id;
-    style.name = (serving.styles[id] || serving.rendered[id]).name;
-    style.serving_data = serving.styles[id];
-    style.serving_rendered = serving.rendered[id];
-    return style;
+
+    return {
+      ...style,
+      id,
+      name: (serving.styles[id] || serving.rendered[id]).name,
+      serving_data: serving.styles[id],
+      serving_rendered: serving.rendered[id],
+    };
   });
 
   /*
@@ -534,48 +565,57 @@ function start(opts) {
   });
   */
   serveTemplate('/styles/:id/wmts.xml', 'wmts', (req) => {
-    const id = req.params.id;
+    const { id } = req.params;
     const wmts = clone((serving.styles || {})[id]);
+
     if (!wmts) {
       return null;
     }
+
     if (wmts.hasOwnProperty('serve_rendered') && !wmts.serve_rendered) {
       return null;
     }
-    wmts.id = id;
-    wmts.name = (serving.styles[id] || serving.rendered[id]).name;
+
+    let baseUrl;
     if (opts.publicUrl) {
-      wmts.baseUrl = opts.publicUrl;
+      baseUrl = opts.publicUrl;
     } else {
-      wmts.baseUrl = `${
+      baseUrl = `${
         req.get('X-Forwarded-Protocol')
           ? req.get('X-Forwarded-Protocol')
           : req.protocol
       }://${req.get('host')}/`;
     }
-    return wmts;
+
+    return {
+      ...wmts,
+      id,
+      name: (serving.styles[id] || serving.rendered[id]).name,
+      baseUrl,
+    };
   });
 
   serveTemplate('/data/:id/$', 'data', (req) => {
-    const id = req.params.id;
-    const data = clone(serving.data[id]);
+    const { id } = req.params;
+    const data = serving.data[id];
+
     if (!data) {
       return null;
     }
-    data.id = id;
-    data.is_vector = data.tileJSON.format === 'pbf';
-    return data;
+
+    return {
+      ...data,
+      id,
+      is_vector: data.tileJSON.format === 'pbf',
+    };
   });
 
   let startupComplete = false;
   const startupPromise = Promise.all(startupPromises).then(() => {
     console.log('Startup complete');
     startupComplete = true;
-
-    if (sentryEnabled) {
-      app.use(Sentry.Handlers.errorHandler());
-    }
   });
+
   app.get('/health', (req, res, next) => {
     if (startupComplete) {
       return res.status(200).send('OK');
@@ -600,15 +640,14 @@ function start(opts) {
   enableShutdown(server);
 
   return {
-    app: app,
-    server: server,
-    startupPromise: startupPromise,
+    app,
+    server,
+    startupPromise,
   };
 }
 
 /**
  * Stop the server gracefully
- *
  * @param {string} signal Name of the received signal
  */
 function stopGracefully(signal) {

@@ -8,16 +8,17 @@ Styles
 ======
 * Styles are served at ``/styles/{id}/style.json`` (+ array at ``/styles.json``)
 
-  * Sprites at ``/styles/{id}/sprite[@2x].{format}``
+  * Sprites at ``/styles/{id}/sprite[/spriteID][@2x].{format}``
   * Fonts at ``/fonts/{fontstack}/{start}-{end}.pbf``
 
 Rendered tiles
 ==============
-* Rendered tiles are served at ``/styles/{id}/{z}/{x}/{y}[@2x].{format}``
+* Rendered tiles are served at ``/styles/{id}[/{tileSize}]/{z}/{x}/{y}[@2x].{format}``
 
-  * The optional ``@2x`` (or ``@3x``, ``@4x``) part can be used to render HiDPI (retina) tiles
+  * The optional ratio ``@2x`` (ex.  ``@2x``, ``@3x``, ``@4x``) part can be used to render HiDPI (retina) tiles
+  * The optional tile size ``/{tileSize}`` (ex. ``/256``, ``/512``). if omitted, tileSize defaults to 256.
   * Available formats: ``png``, ``jpg`` (``jpeg``), ``webp``
-  * TileJSON at ``/styles/{id}.json``
+  * TileJSON at ``/styles[/{tileSize}]/{id}.json``
 
 * The rendered tiles are not available in the ``tileserver-gl-light`` version.
 
@@ -35,21 +36,31 @@ Static images
 
 * All the static image endpoints additionally support following query parameters:
 
-  * ``path`` - comma-separated ``lng,lat``, pipe-separated pairs
+  * ``path`` - ``((fill|stroke|width)\:[^\|]+\|)*(enc:.+|-?\d+(\.\d*)?,-?\d+(\.\d*)?(\|-?\d+(\.\d*)?,-?\d+(\.\d*)?)+)``
 
-    * e.g. ``5.9,45.8|5.9,47.8|10.5,47.8|10.5,45.8|5.9,45.8``
+    * comma-separated ``lng,lat``, pipe-separated pairs
+
+      * e.g. ``path=5.9,45.8|5.9,47.8|10.5,47.8|10.5,45.8|5.9,45.8``
+
+    * `Google Encoded Polyline Format <https://developers.google.com/maps/documentation/utilities/polylinealgorithm>`_
+
+      * e.g. ``path=enc:_p~iF~ps|U_ulLnnqC_mqNvxq`@``
+      * If 'enc:' is used, the rest of the path parameter is considered to be part of the encoded polyline string -- do not specify the coordinate pairs.
+
+    * With options (fill|stroke|width)
+
+      * e.g. ``path=stroke:yellow|width:2|fill:green|5.9,45.8|5.9,47.8|10.5,47.8|10.5,45.8|5.9,45.8`` or ``path=stroke:blue|width:1|fill:yellow|enc:_p~iF~ps|U_ulLnnqC_mqNvxq`@``
+
     * can be provided multiple times
-    * or pass the path as per `Maptiler Cloud API <https://docs.maptiler.com/cloud/api/static-maps/>`_
-    * Match pattern: ((fill|stroke|width)\:[^\|]+\|)*((enc:.+)|((-?\d+\.?\d*,-?\d+\.?\d*\|)+(-?\d+\.?\d*,-?\d+\.?\d*)))
 
-  * ``latlng`` - indicates coordinates are in ``lat,lng`` order rather than the usual ``lng,lat``
-  * ``fill`` - color to use as the fill (e.g. ``red``, ``rgba(255,255,255,0.5)``, ``#0000ff``)
-  * ``stroke`` - color of the path stroke
-  * ``width`` - width of the stroke
-  * ``linecap`` - rendering style for the start and end points of the path
-  * ``linejoin`` - rendering style for overlapping segments of the path with differing directions
-  * ``border`` - color of the optional border path stroke
-  * ``borderwidth`` - width of the border stroke (default 10% of width)
+  * ``latlng`` - indicates coordinates are in ``lat,lng`` order rather than the usual ``lng,lat`` for paths and markers
+  * ``fill`` - default color to use as the fill (e.g. ``red``, ``rgba(255,255,255,0.5)``, ``#0000ff``) for all paths
+  * ``stroke`` - default color of the path stroke for all paths
+  * ``width`` - default width of the stroke for all paths
+  * ``linecap`` - rendering style for the start and end points of all paths - see https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/lineCap
+  * ``linejoin`` - rendering style for joining successive segments of all paths when the direction changes - see https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/lineJoin
+  * ``border`` - color of the optional border stroke for all paths ; the border is like a halo around the stroke
+  * ``borderwidth`` - width of the border stroke (default 10% of stroke width) for all paths
   * ``marker`` - Marker in format ``lng,lat|iconPath|option|option|...``
 
     * Will be rendered with the bottom center at the provided location
@@ -81,17 +92,19 @@ Static images
 
 Source data
 ===========
-* Source data are served at ``/data/{mbtiles}/{z}/{x}/{y}.{format}``
+* Source data are served at ``/data/{id}/{z}/{x}/{y}.{format}``
 
   * Format depends on the source file (usually ``png`` or ``pbf``)
 
     * ``geojson`` is also available (useful for inspecting the tiles) in case the original format is ``pbf``
 
-  * TileJSON at ``/data/{mbtiles}.json``
+  * TileJSON at ``/data/{id}.json``
 
 TileJSON arrays
 ===============
-Array of all TileJSONs is at ``/index.json`` (``/rendered.json``; ``/data.json``)
+Array of all TileJSONs is at ``[/{tileSize}]/index.json`` (``[/{tileSize}]/rendered.json``; ``/data.json``)
+
+  * The optional tile size ``/{tileSize}`` (ex. ``/256``, ``/512``). if omitted, tileSize defaults to 256.
 
 List of available fonts
 =======================

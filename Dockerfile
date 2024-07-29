@@ -1,4 +1,4 @@
-FROM ubuntu:focal AS builder
+FROM ubuntu:jammy AS builder
 
 ENV NODE_ENV="production"
 
@@ -8,13 +8,14 @@ RUN set -ex; \
     apt-get -y --no-install-recommends install \
       build-essential \
       ca-certificates \
-      wget \
+      curl \
+      gnupg \
       pkg-config \
       xvfb \
       libglfw3-dev \
       libuv1-dev \
       libjpeg-turbo8 \
-      libicu66 \
+      libicu70 \
       libcairo2-dev \
       libpango1.0-dev \
       libjpeg-dev \
@@ -26,16 +27,19 @@ RUN set -ex; \
       libcurl4-openssl-dev \
       libpixman-1-dev \
       libpixman-1-0; \
-      apt-get -y --purge autoremove; \
-      apt-get clean; \
-      rm -rf /var/lib/apt/lists/*;
+    apt-get -y --purge autoremove; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*;
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-RUN wget -qO- https://deb.nodesource.com/setup_18.x | bash; \
+RUN mkdir -p /etc/apt/keyrings; \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg; \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list; \
+    apt-get -qq update; \
     apt-get install -y nodejs; \
     npm i -g npm@latest; \
-    apt-get -y remove wget; \
+    apt-get -y remove curl gnupg; \
     apt-get -y --purge autoremove; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*;
@@ -47,10 +51,14 @@ WORKDIR /usr/src/app
 COPY package.json /usr/src/app
 COPY package-lock.json /usr/src/app
 
-RUN npm ci --omit=dev; \
+RUN npm config set maxsockets 1; \
+    npm config set fetch-retries 5; \
+    npm config set fetch-retry-mintimeout 100000; \
+    npm config set fetch-retry-maxtimeout 600000; \
+    npm ci --omit=dev; \
     chown -R root:root /usr/src/app;
 
-FROM ubuntu:focal AS final
+FROM ubuntu:jammy AS final
 
 ENV \
     NODE_ENV="production" \
@@ -64,12 +72,13 @@ RUN set -ex; \
     apt-get -qq update; \
     apt-get -y --no-install-recommends install \
       ca-certificates \
-      wget \
+      curl \
+      gnupg \
       xvfb \
       libglfw3 \
       libuv1 \
       libjpeg-turbo8 \
-      libicu66 \
+      libicu70 \
       libcairo2 \
       libgif7 \
       libopengl0 \
@@ -83,10 +92,13 @@ RUN set -ex; \
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-RUN wget -qO- https://deb.nodesource.com/setup_18.x | bash; \ 
+RUN mkdir -p /etc/apt/keyrings; \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg; \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list; \
+    apt-get -qq update; \
     apt-get install -y nodejs; \
     npm i -g npm@latest; \
-    apt-get -y remove wget; \
+    apt-get -y remove curl gnupg; \
     apt-get -y --purge autoremove; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*;
