@@ -38,7 +38,7 @@
                 <a href="{{public_url}}styles/{{@key}}/style.json{{&../key_query}}">GL Style</a>
               {{/if}}
               {{#if serving_rendered}}
-                {{#if serving_data}}| {{/if}}<a href="{{public_url}}styles/{{@key}}.json{{&../key_query}}">TileJSON</a>
+                {{#if serving_data}}| {{/if}}<a href="{{public_url}}styles/512/{{@key}}.json{{&../key_query}}">TileJSON</a>
               {{/if}}
               {{#if serving_rendered}}
                 | <a href="{{public_url}}styles/{{@key}}/wmts.xml{{&../key_query}}">WMTS</a>
@@ -77,13 +77,11 @@
             <img src="{{public_url}}images/placeholder.png{{&key_query}}" alt="{{name}} preview" />
           {{/if}}
           <div class="details">
-            <h3>{{name}}</h3>
-            <p class="identifier">identifier: {{@key}}{{#if formatted_filesize}} | size: {{formatted_filesize}}{{/if}} | type: {{#is_vector}}vector{{/is_vector}}{{^is_vector}}raster{{/is_vector}} data</p>
+            <h3>{{tileJSON.name}}</h3>
+            <div class="identifier">identifier: {{@key}}{{#if formatted_filesize}} | size: {{formatted_filesize}}{{/if}}</div>
+            <div class="identifier">type: {{#is_vector}}vector{{/is_vector}}{{^is_vector}}raster{{/is_vector}} data {{#if sourceType}} | ext: {{sourceType}}{{/if}}</div>
             <p class="services">
               services: <a href="{{public_url}}data/{{@key}}.json{{&../key_query}}">TileJSON</a>
-              {{#if wmts_link}}
-                | <a href="{{&wmts_link}}">WMTS</a>
-              {{/if}}
               {{#if xyz_link}}
                 | <a href="#" onclick="return toggle_xyz('xyz_data_{{@key}}');">XYZ</a>
                   <input id="xyz_data_{{@key}}" type="text" value="{{&xyz_link}}" style="display:none;" />
