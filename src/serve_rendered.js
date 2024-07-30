@@ -7,41 +7,44 @@
 // This happens on ARM:
 //  > terminate called after throwing an instance of 'std::runtime_error'
 //  > what():  Cannot read GLX extensions.
-import 'canvas';
 import '@maplibre/maplibre-gl-native';
+import 'canvas';
 //
 // SECTION END
 
+import MBTiles from '@mapbox/mbtiles';
+import polyline from '@mapbox/polyline';
+import SphericalMercator from '@mapbox/sphericalmercator';
+import mlgl from '@maplibre/maplibre-gl-native';
 import advancedPool from 'advanced-pool';
-import fs from 'node:fs';
-import path from 'path';
-import url from 'url';
-import util from 'util';
-import zlib from 'zlib';
-import sharp from 'sharp';
+import axios from 'axios';
 import clone from 'clone';
 import Color from 'color';
 import express from 'express';
-import sanitize from 'sanitize-filename';
-import SphericalMercator from '@mapbox/sphericalmercator';
-import mlgl from '@maplibre/maplibre-gl-native';
-import MBTiles from '@mapbox/mbtiles';
-import polyline from '@mapbox/polyline';
+import fs from 'node:fs';
+import path from 'path';
 import proj4 from 'proj4';
-import axios from 'axios';
+import sanitize from 'sanitize-filename';
+import sharp from 'sharp';
+import url from 'url';
+import util from 'util';
+import zlib from 'zlib';
 import {
-  getFontsPbf,
-  listFonts,
-  getTileUrls,
-  isValidHttpUrl,
-  fixTileJSONCenter,
-} from './utils.js';
-import {
-  openPMtiles,
   getPMtilesInfo,
   getPMtilesTile,
+  openPMtiles,
 } from './pmtiles_adapter.js';
-import { renderOverlay, renderWatermark, renderAttribution } from './render.js';
+import { renderAttribution, renderOverlay, renderWatermark } from './render.js';
+import {
+  fixTileJSONCenter,
+  getFontsPbf,
+  getTileUrls,
+  isValidHttpUrl,
+  listFonts,
+} from './utils.js';
+
+//- cg: extra AA packages
+import { aaServeBundle, aaServeStaticMap } from './aa.js';
 
 const FLOAT_PATTERN = '[+-]?(?:\\d+|\\d+.?\\d+)';
 const PATH_PATTERN =
@@ -831,6 +834,9 @@ export const serve_rendered = {
           }
         },
       );
+
+      aaServeStaticMap(app, repo);
+      aaServeBundle(app, repo, mercator, options);
     }
 
     app.get('/(:tileSize(256|512)/)?:id.json', (req, res, next) => {

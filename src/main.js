@@ -2,6 +2,9 @@
 
 'use strict';
 
+import "./instrument.js";
+import { sentryEnabled } from "./instrument.js";
+
 import fs from 'node:fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -78,6 +81,7 @@ const startServer = (configPath, config) => {
     logFile: opts.log_file,
     logFormat: opts.log_format,
     publicUrl,
+    sentryEnabled,
   });
 };
 

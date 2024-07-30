@@ -112,6 +112,7 @@ VOLUME /data
 WORKDIR /data
 
 EXPOSE 8080
+EXPOSE 9229
 
 USER node:node
 

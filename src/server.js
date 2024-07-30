@@ -4,22 +4,24 @@
 import os from 'os';
 process.env.UV_THREADPOOL_SIZE = Math.ceil(Math.max(4, os.cpus().length * 1.5));
 
-import fs from 'node:fs';
-import path from 'path';
+import SphericalMercator from '@mapbox/sphericalmercator';
 import fnv1a from '@sindresorhus/fnv1a';
 import chokidar from 'chokidar';
 import clone from 'clone';
 import cors from 'cors';
-import enableShutdown from 'http-shutdown';
 import express from 'express';
 import handlebars from 'handlebars';
-import SphericalMercator from '@mapbox/sphericalmercator';
-const mercator = new SphericalMercator();
+import enableShutdown from 'http-shutdown';
 import morgan from 'morgan';
+import fs from 'node:fs';
+import path from 'path';
 import { serve_data } from './serve_data.js';
-import { serve_style } from './serve_style.js';
 import { serve_font } from './serve_font.js';
-import { getTileUrls, getPublicUrl, isValidHttpUrl } from './utils.js';
+import { serve_style } from './serve_style.js';
+import { getPublicUrl, getTileUrls, isValidHttpUrl } from './utils.js';
+const mercator = new SphericalMercator();
+
+import * as Sentry from '@sentry/node';
 
 import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
@@ -49,6 +51,9 @@ function start(opts) {
   };
 
   app.enable('trust proxy');
+
+  // NOTE(cg): bundle endpoint needs to look at post request body
+  app.use(express.urlencoded({ extended: true }));
 
   if (process.env.NODE_ENV !== 'test') {
     const defaultLogFormat =
@@ -638,6 +643,11 @@ function start(opts) {
 
   // add server.shutdown() to gracefully stop serving
   enableShutdown(server);
+
+  if (opts.sentryEnabled) {
+    console.log('Sentry enabled');
+    Sentry.setupExpressErrorHandler(app);
+  }
 
   return {
     app,
