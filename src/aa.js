@@ -172,6 +172,8 @@ const renderImage = async (
   }
 
   try {
+    const tileMargin = 0;
+
     const pool = item.map.renderersStatic[scale];
 
     // pool.acquire((err, renderer) => ...
