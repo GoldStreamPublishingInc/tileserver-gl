@@ -13,13 +13,7 @@ try {
   const sentryPath = path.resolve('.sentry');
   const dsn = fs.readFileSync(sentryPath, 'utf8');
   if (dsn) {
-    Sentry.init({
-      dsn,
-      integrations: [nodeProfilingIntegration()],
-      tracesSampleRate: 0.25,
-      profilesSampleRate: 1.0,
-    });
-
+    Sentry.init({ dsn });
     sentryEnabled = true;
   }
 } catch (e) {}

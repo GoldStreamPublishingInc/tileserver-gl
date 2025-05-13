@@ -645,7 +645,6 @@ function start(opts) {
   enableShutdown(server);
 
   if (opts.sentryEnabled) {
-    console.log('Sentry enabled');
     Sentry.setupExpressErrorHandler(app);
   }
 
