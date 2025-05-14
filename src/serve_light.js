@@ -3,7 +3,12 @@
 'use strict';
 
 export const serve_rendered = {
-  init: (options, repo) => {},
-  add: (options, repo, params, id, publicUrl, dataResolver) => {},
+  init: (options, repo, programOpts) => {},
+  add: (options, repo, params, id, programOpts, dataResolver) => {},
   remove: (repo, id) => {},
+  clear: (repo) => {},
+  getTerrainElevation: (data, param) => {
+    param['elevation'] = 'not supported in light';
+    return param;
+  },
 };

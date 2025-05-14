@@ -17,15 +17,20 @@ Example:
         "icons": "icons",
         "styles": "styles",
         "mbtiles": "data",
-        "pmtiles": "data"
+        "pmtiles": "data",
+        "files": "files"
       },
       "domains": [
         "localhost:8080",
         "127.0.0.1:8080"
       ],
-      "formatQuality": {
-        "jpeg": 80,
-        "webp": 90
+      "formatOptions": {
+        "jpeg": {
+          "quality": 80
+        },
+        "webp": {
+          "quality": 90
+        }
       },
       "maxScaleFactor": 3,
       "maxSize": 2048,
@@ -52,6 +57,9 @@ Example:
         "tilejson": {
           "format": "webp"
         }
+      },
+      "remote": {
+        "style": "https://demotiles.maplibre.org/style.json"
       }
     },
     "data": {
@@ -85,10 +93,24 @@ Path to the html (relative to ``root`` path) to use as a front page.
 Use ``true`` (or nothing) to serve the default TileServer GL front page with list of styles and data.
 Use ``false`` to disable the front page altogether (404).
 
-``formatQuality``
+``formatOptions``
 -----------------
 
-Quality of the compression of individual image formats. [0-100]
+You can use this to specify options for the generation of images in the supported file formats.
+For WebP, the only supported option is ``quality`` [0-100].
+For JPEG, the only supported options are ``quality`` [0-100] and ``progressive`` [true, false]. 
+For PNG, the full set of options `exposed by the sharp library <https://sharp.pixelplumbing.com/api-output#png>`_ is available, except ``force`` and ``colours`` (use ``colors``). If not set, their values are the defaults from ``sharp``.
+
+For example::
+
+  "formatOptions": {
+    "png": {
+      "palette": true,
+      "colors": 4
+    }
+  }
+
+Note: ``formatOptions`` replaced the ``formatQuality`` option in previous versions of TileServer GL. 
 
 ``maxScaleFactor``
 -----------
@@ -190,7 +212,7 @@ Not used by default.
 
 Each item in this object defines one style (map). It can have the following options:
 
-* ``style`` -- name of the style json file [required]
+* ``style`` -- name of the style json file or url of a remote hosted style [required]
 * ``serve_rendered`` -- whether to render the raster tiles for this style or not
 * ``serve_data`` -- whether to allow access to the original tiles, sprites and required glyphs
 * ``tilejson`` -- properties to add to the TileJSON created for the raster data
@@ -219,8 +241,25 @@ For example::
     }
   }
 
-
 The data source does not need to be specified here unless you explicitly want to serve the raw data.
+
+Serving Terrain Tiles
+--------------
+
+If you serve terrain tiles, it is possible to configure an ``encoding`` with ``mapbox`` or ``terrarium`` to enable a terrain preview mode and the ``elevation`` api for the ``data`` endpoint.
+
+For example::
+
+  "data": {
+    "terrain1": {
+      "mbtiles": "terrain1.mbtiles",
+      "encoding": "mapbox"
+    },
+    "terrain2": {
+      "pmtiles": "terrain2.pmtiles"
+      "encoding": "terrarium"
+    }
+  }
 
 Referencing local files from style JSON
 =======================================
@@ -264,7 +303,7 @@ For example::
     "source3": {
       "url": "pmtiles://https://foo.lan/source3.pmtiles",
       "type": "vector"
-    },
+    }
   }
 
 Alternatively, you can use ``pmtiles://{source2}`` to reference existing data object from the config.

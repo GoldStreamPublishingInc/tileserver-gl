@@ -9,20 +9,11 @@
   "styles": {
     "osm": {
       "style": "osm.json"
-    },
-    "bathymetry": {
-      "style": "bathymetry.json"
     }
   },
   "data": {
     "osm": {
       "mbtiles": "osm.mbtiles"
-    },
-    "bathymetry": {
-      "mbtiles": "bathymetry.mbtiles"
-    },
-    "bathymetry-us": {
-      "mbtiles": "bathymetry-us.mbtiles"
     }
   }
 }
