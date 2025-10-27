@@ -132,7 +132,7 @@ const startWithInputFile = async (inputFile) => {
   const extension = inputFile.split('.').pop().toLowerCase();
   if (extension === 'pmtiles') {
     const fileOpenInfo = openPMtiles(inputFile);
-    const metadata = await getPMtilesInfo(fileOpenInfo);
+    const metadata = await getPMtilesInfo(fileOpenInfo, inputFile);
 
     if (
       metadata.format === 'pbf' &&
