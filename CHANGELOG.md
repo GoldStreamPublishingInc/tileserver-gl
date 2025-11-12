@@ -1,8 +1,20 @@
 # tileserver-gl changelog
 
-## 5.3.1
-* bump maplibre-gl from 5.4.0 to 5.5.0 (https://github.com/maptiler/tileserver-gl/pull/1546). Fixes (https://github.com/maptiler/tileserver-gl/issues/1539) and (https://github.com/maptiler/tileserver-gl/issues/1530)
-* bump @maplibre/maplibre-gl-native from 6.0.0 to 6.1.0 (https://github.com/maptiler/tileserver-gl/pull/1536).
+## 5.5.0-pre.2
+* Add S3 support for PMTiles with multiple AWS credential profiles (https://github.com/maptiler/tileserver-gl/pull/1779) by @acalcutt
+* Create .aws directory passthrough folder in Dockerfile (https://github.com/maptiler/tileserver-gl/pull/1784) by @acalcutt
+* Update eslint to v9 (https://github.com/maptiler/tileserver-gl/pull/1473) by @acalcutt
+* Fix Renderer Crashes from Failed Fetches (https://github.com/maptiler/tileserver-gl/pull/1798) by @acalcutt
+
+## 5.4.0
+* Fix the issue where the tile URL cannot be correctly parsed with the HTTPS protocol when using an nginx proxy service (https://github.com/maptiler/tileserver-gl/pull/1578) by @dakanggo
+* Use jemalloc as memory allocator in the docker image (https://github.com/maptiler/tileserver-gl/pull/1574) by @MichielMortier
+* Rasters: Add tileSize to TileJSON (https://github.com/maptiler/tileserver-gl/pull/1559) by @roblabs
+* Allow a 'sparse' option per data source (https://github.com/maptiler/tileserver-gl/pull/1558) by @acalcutt
+* Updates Maplibre-gl-js to v5.6.2 and adds color-relief support (note: this is not yet supported by maplibre-native) (https://github.com/maptiler/tileserver-gl/pull/1591)
+* Fix getPublicUrl to handle relative and absolute URLs (https://github.com/maptiler/tileserver-gl/pull/1472) by @Monnte
+* Workaround for 'hillshade-method' not yet being suported in maplibre-native (https://github.com/maptiler/tileserver-gl/pull/1620) by @acalcutt
+* Updates Maplibre-native to v6.2.0. This should fix the macos metal support in Issue: (https://github.com/maptiler/tileserver-gl/issues/1402)
 
 ## 5.3.0
 * Fix - Include public\resources js files on npm publish by specifying included files in package.json (https://github.com/maptiler/tileserver-gl/pull/1490) by @acalcutt

@@ -12,7 +12,7 @@ import { SphericalMercator } from '@mapbox/sphericalmercator';
 import {
   fixTileJSONCenter,
   getTileUrls,
-  isValidHttpUrl,
+  isValidRemoteUrl,
   fetchTileData,
 } from './utils.js';
 import { getPMtilesInfo, openPMtiles } from './pmtiles_adapter.js';
@@ -30,9 +30,9 @@ const packageJson = JSON.parse(
 );
 
 const isLight = packageJson.name.slice(-6) === '-light';
-const serve_rendered = (
-  await import(`${!isLight ? `./serve_rendered.js` : `./serve_light.js`}`)
-).serve_rendered;
+const { serve_rendered } = await import(
+  `${!isLight ? `./serve_rendered.js` : `./serve_light.js`}`
+);
 
 export const serve_data = {
   /**
@@ -68,6 +68,7 @@ export const serve_data = {
           String(req.params.format).replace(/\n|\r/g, ''),
         );
       }
+
       const item = repo[req.params.id];
       if (!item) {
         return res.sendStatus(404);
@@ -108,7 +109,11 @@ export const serve_data = {
         x,
         y,
       );
-      if (fetchTile == null) return res.status(204).send();
+      if (fetchTile == null && item.tileJSON.sparse) {
+        return res.status(410).send();
+      } else if (fetchTile == null) {
+        return res.status(204).send();
+      }
 
       let data = fetchTile.data;
       let headers = fetchTile.headers;
@@ -142,6 +147,7 @@ export const serve_data = {
           features: [],
         };
         for (const layerName in tile.layers) {
+          // eslint-disable-next-line security/detect-object-injection -- layerName from VectorTile library internal data structure
           const layer = tile.layers[layerName];
           for (let i = 0; i < layer.length; i++) {
             const feature = layer.feature(i);
@@ -158,9 +164,7 @@ export const serve_data = {
       headers['Content-Encoding'] = 'gzip';
       res.set(headers);
 
-      if (!isGzipped) {
-        data = await gzipP(data);
-      }
+      data = await gzipP(data);
 
       return res.status(200).send(data);
     });
@@ -186,6 +190,7 @@ export const serve_data = {
             String(req.params.y).replace(/\n|\r/g, ''),
           );
         }
+
         const item = repo?.[req.params.id];
         if (!item) return res.sendStatus(404);
         if (!item.source) return res.status(404).send('Missing source');
@@ -296,6 +301,7 @@ export const serve_data = {
           String(req.params.id).replace(/\n|\r/g, ''),
         );
       }
+
       const item = repo[req.params.id];
       if (!item) {
         return res.sendStatus(404);
@@ -327,25 +333,26 @@ export const serve_data = {
    * @param {object} programOpts - An object containing the program options
    * @param {string} programOpts.publicUrl Public URL for the data.
    * @param {boolean} programOpts.verbose Whether verbose logging should be used.
-   * @param {Function} dataResolver Function to resolve data.
    * @returns {Promise<void>}
    */
   add: async function (options, repo, params, id, programOpts) {
-    const { publicUrl } = programOpts;
+    const { publicUrl, verbose } = programOpts;
     let inputFile;
     let inputType;
     if (params.pmtiles) {
       inputType = 'pmtiles';
-      if (isValidHttpUrl(params.pmtiles)) {
+      // PMTiles supports HTTP, HTTPS, and S3 URLs
+      if (isValidRemoteUrl(params.pmtiles)) {
         inputFile = params.pmtiles;
       } else {
         inputFile = path.resolve(options.paths.pmtiles, params.pmtiles);
       }
     } else if (params.mbtiles) {
       inputType = 'mbtiles';
-      if (isValidHttpUrl(params.mbtiles)) {
+      // MBTiles does not support remote URLs
+      if (isValidRemoteUrl(params.mbtiles)) {
         console.log(
-          `ERROR: MBTiles does not support web based files. "${params.mbtiles}" is not a valid data file.`,
+          `ERROR: MBTiles does not support remote files. "${params.mbtiles}" is not a valid data file.`,
         );
         process.exit(1);
       } else {
@@ -353,11 +360,16 @@ export const serve_data = {
       }
     }
 
+    if (verbose && verbose >= 1) {
+      console.log(`[INFO] Loading data source '${id}' from: ${inputFile}`);
+    }
+
     let tileJSON = {
       tiles: params.domains || options.domains,
     };
 
-    if (!isValidHttpUrl(inputFile)) {
+    // Only check file stats for local files, not remote URLs
+    if (!isValidRemoteUrl(inputFile)) {
       const inputFileStats = await fsp.stat(inputFile);
       if (!inputFileStats.isFile() || inputFileStats.size === 0) {
         throw Error(`Not valid input file: "${inputFile}"`);
@@ -366,53 +378,44 @@ export const serve_data = {
 
     let source;
     let sourceType;
+    tileJSON['name'] = id;
+    tileJSON['format'] = 'pbf';
+    tileJSON['encoding'] = params['encoding'];
+    tileJSON['tileSize'] = params['tileSize'];
+    tileJSON['sparse'] = params['sparse'];
+
     if (inputType === 'pmtiles') {
-      source = openPMtiles(inputFile);
+      source = openPMtiles(
+        inputFile,
+        params.s3Profile,
+        params.requestPayer,
+        params.s3Region,
+        verbose,
+      );
       sourceType = 'pmtiles';
-      const metadata = await getPMtilesInfo(source);
-
-      tileJSON['encoding'] = params['encoding'];
-      tileJSON['tileSize'] = params['tileSize'];
-      tileJSON['name'] = id;
-      tileJSON['format'] = 'pbf';
+      const metadata = await getPMtilesInfo(source, inputFile);
       Object.assign(tileJSON, metadata);
-
-      tileJSON['tilejson'] = '2.0.0';
-      delete tileJSON['filesize'];
-      delete tileJSON['mtime'];
-      delete tileJSON['scheme'];
-
-      Object.assign(tileJSON, params.tilejson || {});
-      fixTileJSONCenter(tileJSON);
-
-      if (options.dataDecoratorFunc) {
-        tileJSON = options.dataDecoratorFunc(id, 'tilejson', tileJSON);
-      }
     } else if (inputType === 'mbtiles') {
       sourceType = 'mbtiles';
       const mbw = await openMbTilesWrapper(inputFile);
       const info = await mbw.getInfo();
       source = mbw.getMbTiles();
-      tileJSON['encoding'] = params['encoding'];
-      tileJSON['tileSize'] = params['tileSize'];
-      tileJSON['name'] = id;
-      tileJSON['format'] = 'pbf';
-
       Object.assign(tileJSON, info);
-
-      tileJSON['tilejson'] = '2.0.0';
-      delete tileJSON['filesize'];
-      delete tileJSON['mtime'];
-      delete tileJSON['scheme'];
-
-      Object.assign(tileJSON, params.tilejson || {});
-      fixTileJSONCenter(tileJSON);
-
-      if (options.dataDecoratorFunc) {
-        tileJSON = options.dataDecoratorFunc(id, 'tilejson', tileJSON);
-      }
     }
 
+    delete tileJSON['filesize'];
+    delete tileJSON['mtime'];
+    delete tileJSON['scheme'];
+    tileJSON['tilejson'] = '3.0.0';
+
+    Object.assign(tileJSON, params.tilejson || {});
+    fixTileJSONCenter(tileJSON);
+
+    if (options.dataDecoratorFunc) {
+      tileJSON = options.dataDecoratorFunc(id, 'tilejson', tileJSON);
+    }
+
+    // eslint-disable-next-line security/detect-object-injection -- id is from config file data source names
     repo[id] = {
       tileJSON,
       publicUrl,

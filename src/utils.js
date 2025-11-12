@@ -9,18 +9,23 @@ import { existsP } from './promises.js';
 import { getPMtilesTile } from './pmtiles_adapter.js';
 
 export const allowedSpriteFormats = allowedOptions(['png', 'json']);
-
 export const allowedTileSizes = allowedOptions(['256', '512']);
+export const httpTester = /^https?:\/\//i;
+export const s3Tester = /^s3:\/\//i; // Plain AWS S3 format
+export const s3HttpTester = /^s3\+https?:\/\//i; // S3-compatible with custom endpoint
+export const pmtilesTester = /^pmtiles:\/\//i;
+export const mbtilesTester = /^mbtiles:\/\//i;
 
 /**
  * Restrict user input to an allowed set of options.
  * @param {string[]} opts - An array of allowed option strings.
  * @param {object} [config] - Optional configuration object.
  * @param {string} [config.defaultValue] - The default value to return if input doesn't match.
- * @returns {function(string): string} - A function that takes a value and returns it if valid or a default.
+ * @returns {(value: string) => string} - A function that takes a value and returns it if valid or a default.
  */
 export function allowedOptions(opts, { defaultValue } = {}) {
   const values = Object.fromEntries(opts.map((key) => [key, key]));
+  // eslint-disable-next-line security/detect-object-injection -- value is checked against allowed opts keys
   return (value) => values[value] || defaultValue;
 }
 
@@ -35,7 +40,6 @@ export function allowedScales(scale, maxScale = 9) {
     return 1;
   }
 
-  // eslint-disable-next-line security/detect-non-literal-regexp
   const regex = new RegExp(`^[2-${maxScale}]x$`);
   if (!regex.test(scale)) {
     return null;
@@ -119,7 +123,11 @@ function getUrlObject(req) {
  */
 export function getPublicUrl(publicUrl, req) {
   if (publicUrl) {
-    return publicUrl;
+    try {
+      return new URL(publicUrl).toString();
+    } catch {
+      return new URL(publicUrl, getUrlObject(req)).toString();
+    }
   }
   return getUrlObject(req).toString();
 }
@@ -152,7 +160,7 @@ export function getTileUrls(
     const hostParts = urlObject.host.split('.');
     const relativeSubdomainsUsable =
       hostParts.length > 1 &&
-      !/^([0-9]{1,3}\.){3}[0-9]{1,3}(\:[0-9]+)?$/.test(urlObject.host);
+      !/^([0-9]{1,3}\.){3}[0-9]{1,3}(:[0-9]+)?$/.test(urlObject.host);
     const newDomains = [];
     for (const domain of domains) {
       if (domain.indexOf('*') !== -1) {
@@ -180,7 +188,9 @@ export function getTileUrls(
   }
   const query = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
 
+  // eslint-disable-next-line security/detect-object-injection -- format is validated format string from tileJSON
   if (aliases && aliases[format]) {
+    // eslint-disable-next-line security/detect-object-injection -- format is validated format string from tileJSON
     format = aliases[format];
   }
 
@@ -198,9 +208,12 @@ export function getTileUrls(
   const uris = [];
   if (!publicUrl) {
     let xForwardedPath = `${req.get('X-Forwarded-Path') ? '/' + req.get('X-Forwarded-Path') : ''}`;
+    let protocol = req.get('X-Forwarded-Protocol')
+      ? req.get('X-Forwarded-Protocol')
+      : req.protocol;
     for (const domain of domains) {
       uris.push(
-        `${req.protocol}://${domain}${xForwardedPath}/${path}/${tileParams}${format}${query}`,
+        `${protocol}://${domain}${xForwardedPath}/${path}/${tileParams}${format}${query}`,
       );
     }
   } else {
@@ -238,7 +251,7 @@ export function fixTileJSONCenter(tileJSON) {
 export function readFile(filename) {
   return new Promise((resolve, reject) => {
     const sanitizedFilename = path.normalize(filename); // Normalize path, remove ..
-    // eslint-disable-next-line security/detect-non-literal-fs-filename
+
     fs.readFile(String(sanitizedFilename), (err, data) => {
       if (err) {
         reject(err);
@@ -259,8 +272,9 @@ export function readFile(filename) {
  * @returns {Promise<Buffer>} A promise that resolves with the font data Buffer or rejects with an error.
  */
 async function getFontPbf(allowedFonts, fontPath, name, range, fallbacks) {
+  // eslint-disable-next-line security/detect-object-injection -- name is validated font name from sanitizedName check
   if (!allowedFonts || (allowedFonts[name] && fallbacks)) {
-    const fontMatch = name?.match(/^[\p{L}\p{N} \-\.~!*'()@&=+,#$\[\]]+$/u);
+    const fontMatch = name?.match(/^[\p{L}\p{N} \-.~!*'()@&=+,#$[\]]+$/u);
     const sanitizedName = fontMatch?.[0] || 'invalid';
     if (!name || typeof name !== 'string' || name.trim() === '' || !fontMatch) {
       console.error(
@@ -288,6 +302,7 @@ async function getFontPbf(allowedFonts, fontPath, name, range, fallbacks) {
     if (!fallbacks) {
       fallbacks = clone(allowedFonts || {});
     }
+    // eslint-disable-next-line security/detect-object-injection -- name is validated font name
     delete fallbacks[name];
 
     try {
@@ -307,8 +322,10 @@ async function getFontPbf(allowedFonts, fontPath, name, range, fallbacks) {
           fontStyle = 'Regular';
         }
         fallbackName = `Noto Sans ${fontStyle}`;
+        // eslint-disable-next-line security/detect-object-injection -- fallbackName is constructed from validated font style
         if (!fallbacks[fallbackName]) {
           fallbackName = `Open Sans ${fontStyle}`;
+          // eslint-disable-next-line security/detect-object-injection -- fallbackName is constructed from validated font style
           if (!fallbacks[fallbackName]) {
             fallbackName = Object.keys(fallbacks)[0];
           }
@@ -318,6 +335,7 @@ async function getFontPbf(allowedFonts, fontPath, name, range, fallbacks) {
           fallbackName,
           sanitizedName,
         );
+        // eslint-disable-next-line security/detect-object-injection -- fallbackName is constructed from validated font style
         delete fallbacks[fallbackName];
         return getFontPbf(null, fontPath, fallbackName, range, fallbacks);
       } else {
@@ -385,20 +403,72 @@ export async function listFonts(fontPath) {
 }
 
 /**
- * Checks if a string is a valid HTTP or HTTPS URL.
- * @param {string} string - The string to validate.
- * @returns {boolean} True if the string is a valid HTTP/HTTPS URL, false otherwise.
+ * Checks if a string is a valid HTTP/HTTPS URL.
+ * @param {string} string - The string to check.
+ * @returns {boolean} - True if the string is a valid HTTP/HTTPS URL.
  */
 export function isValidHttpUrl(string) {
-  let url;
-
   try {
-    url = new URL(string);
-  } catch (_) {
+    return httpTester.test(string);
+  } catch {
     return false;
   }
+}
 
-  return url.protocol === 'http:' || url.protocol === 'https:';
+/**
+ * Checks if a string is a valid S3 URL.
+ * @param {string} string - The string to check.
+ * @returns {boolean} - True if the string is a valid S3 URL.
+ */
+export function isS3Url(string) {
+  try {
+    return s3Tester.test(string) || s3HttpTester.test(string);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Checks if a string is a valid remote URL (HTTP, HTTPS, or S3).
+ * @param {string} string - The string to check.
+ * @returns {boolean} - True if the string is a valid remote URL.
+ */
+export function isValidRemoteUrl(string) {
+  try {
+    return (
+      httpTester.test(string) ||
+      s3Tester.test(string) ||
+      s3HttpTester.test(string)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Checks if a string uses the pmtiles:// protocol.
+ * @param {string} string - The string to check.
+ * @returns {boolean} - True if the string uses pmtiles:// protocol.
+ */
+export function isPMTilesProtocol(string) {
+  try {
+    return pmtilesTester.test(string);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Checks if a string uses the mbtiles:// protocol.
+ * @param {string} string - The string to check.
+ * @returns {boolean} - True if the string uses mbtiles:// protocol.
+ */
+export function isMBTilesProtocol(string) {
+  try {
+    return mbtilesTester.test(string);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -412,15 +482,19 @@ export function isValidHttpUrl(string) {
  */
 export async function fetchTileData(source, sourceType, z, x, y) {
   if (sourceType === 'pmtiles') {
-    return await new Promise(async (resolve) => {
+    try {
       const tileinfo = await getPMtilesTile(source, z, x, y);
-      if (!tileinfo?.data) return resolve(null);
-      resolve({ data: tileinfo.data, headers: tileinfo.header });
-    });
+      if (!tileinfo?.data) return null;
+      return { data: tileinfo.data, headers: tileinfo.header };
+    } catch (error) {
+      console.error('Error fetching PMTiles tile:', error);
+      return null;
+    }
   } else if (sourceType === 'mbtiles') {
-    return await new Promise((resolve) => {
+    return new Promise((resolve) => {
       source.getTile(z, x, y, (err, tileData, tileHeader) => {
         if (err) {
+          console.error('Error fetching MBTiles tile:', err);
           return resolve(null);
         }
         resolve({ data: tileData, headers: tileHeader });
